@@ -841,13 +841,14 @@ function renderTime() {
   const on = (id, fn) => { const el = document.getElementById(id); if (el) el.onclick = fn; };
   on('bIn', checkIn);
   on('bShare', () => shareToGroup(pendingShare));
+  // รอบ A: ส่งเวลาที่แตะ (tap) ไปด้วย — เซิร์ฟเวอร์ใช้เวลานี้ถ้าไม่เก่ากว่า 90 วิ (ไม่โดนนับช้าเพราะรอคิว/เน็ต)
   on('bOut', () => twoTap('out', () => {
-    const at = hhmm(nowMs());
-    act('checkout', {}, s => { s.today.out = at; s.staying = s.staying.filter(n => n !== s.me.name); });
+    const tap = nowMs(), at = hhmm(tap);
+    act('checkout', { at: tap }, s => { s.today.out = at; s.staying = s.staying.filter(n => n !== s.me.name); });
   }));
   on('bEarly', () => twoTap('early', () => {
-    const at = hhmm(nowMs());
-    act('early', {}, s => { s.today.early = at; s.today.out = at; s.staying = s.staying.filter(n => n !== s.me.name); });
+    const tap = nowMs(), at = hhmm(tap);
+    act('early', { at: tap }, s => { s.today.early = at; s.today.out = at; s.staying = s.staying.filter(n => n !== s.me.name); });
   }));
   on('bClose', () => twoTap('close', () => doClose()));
 }
@@ -860,14 +861,15 @@ async function doClose(time) {
 // ---------- เช็คอิน GPS ----------
 async function checkIn() {
   if (busy.checkin) return;
+  const tap = nowMs();                       // รอบ A: เวลาที่แตะ ก่อนรอ GPS (สูงสุด ~10 วิ)
   busy.checkin = true; render();
   let pos;
   try { pos = await getBestPosition(); }
   catch (e) { busy.checkin = false; render(); return toast('❌ ' + e.message, 'bad', 9000); }
   busy.checkin = false;
   const c = pos.coords;
-  act('checkin', { lat: c.latitude, lng: c.longitude, acc: Math.round(c.accuracy) },
-      s => { s.today = { status: ST_WORK, in: hhmm(nowMs()), out: '', early: '', rounds: 0 }; });
+  act('checkin', { lat: c.latitude, lng: c.longitude, acc: Math.round(c.accuracy), at: tap },
+      s => { s.today = { status: ST_WORK, in: hhmm(tap), out: '', early: '', rounds: 0 }; });
 }
 
 /** เก็บตำแหน่งหลายครั้งภายใน ~10 วินาที เลือกค่าที่แม่นที่สุด (GPS ครั้งแรกมักคลาดเยอะ) */
@@ -1472,7 +1474,7 @@ function wirePaySet(p, redraw, saveCyc, saveSh) {
 
 const WZ_NEW = () => ({ step: 1, name: '', owner: '', lat: null, lng: null, gps: '', open: '10:00', close: '21:00',
                         holidays: ['จ'], type: 'food', ot: true, food: true, fine: false, until: '', tune: '',
-                        otBaht: 50, otFirst: 30, otStep: 60, foodBaht: 40, fineBaht: 5, graceMin: 0, passFee: 100,
+                        otBaht: 50, otFirst: 30, otStep: 60, foodBaht: 40, fineBaht: 5, graceMin: 2, passFee: 100,
                         depts: ['หน้าร้าน', 'ครัว', 'แคชเชียร์'], staff: [{ name: '', wage: '', dept: 'หน้าร้าน', manager: false }],
                         addDept: false, paste: '', cyc: { kind: 'ครึ่งเดือน', cut: 15, dow: 'จ' }, sh: { on: false, list: SH_DEF() } });
 let wz = (function () {
@@ -1497,6 +1499,15 @@ const addMonthKey = n => { const d = new Date(nowMs()), day = d.getDate(); d.set
   d.setDate(Math.min(day, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()));
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
+/** กติกาชื่อเดียวกับเซิร์ฟเวอร์ (nameErr_ ใน Code.gs) */
+function nameErr(n) {
+  if (n.length > 20) return 'ชื่อยาวไม่เกิน 20 ตัว';
+  if (!/^[฀-๿a-zA-Z0-9]+$/.test(n)) return 'ใช้ได้แค่ตัวไทย อังกฤษ หรือตัวเลข (ไม่มีจุด ขีด หรือสัญลักษณ์)';
+  if (/^\d+$/.test(n) || /^\d+แรง/.test(n)) return 'ชื่อเหมือนตัวเลข/จำนวนแรง ใช้ไม่ได้';
+  if (['เหตุผล', 'เพราะ', 'ยืนยัน', 'พรุ่งนี้', 'วันนี้', 'เมื่อวาน', 'ทุกคน'].indexOf(n) >= 0) return 'ชื่อซ้ำกับคำในคำสั่ง ใช้ไม่ได้';
+  return '';
+}
+
 /** ตรวจการ์ดพนักงานทีละคน → { errs: [ข้อความต่อแถว], ok, list } */
 function staffCheck() {
   const errs = [], seen = {}, list = [];
@@ -1507,6 +1518,7 @@ function staffCheck() {
     if (!name && !wage) { errs[i] = ''; return; }                       // แถวว่าง = ข้าม
     if (!name) e = 'ใส่ชื่อเล่นก่อน';
     else if (/\s/.test(name)) e = 'ชื่อเล่นต้องเป็นคำเดียว (ไม่มีเว้นวรรค)';
+    else if (nameErr(name)) e = nameErr(name);
     else if (seen[name]) e = `ชื่อ “${name}” ซ้ำ`;
     else if (wage === '' || !isFinite(+wage) || +wage < 0) e = 'ใส่เงินต่อวันเป็นตัวเลข';
     errs[i] = e;
