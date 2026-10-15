@@ -470,7 +470,7 @@ async function act(action, extra, optimistic) {
   if (res.state && res.state.ok) setState(res.state); else render();
   if (res.text) toast(res.text + '\n' + (res.ok ? nong('ok') : nong('error')), res.ok ? 'ok' : 'bad', res.ok ? 6000 : 9000);
   else if (res.error) toast(res.error, 'bad', 9000);
-  if (res.ok && res.share) shareToGroup(res.share);
+  if (res.ok && res.share) shareToGroup(res.share, res.shareCard);
   return res;
 }
 
@@ -603,11 +603,15 @@ function inGroup() {
   try { const c = liff.getContext(); return !!c && (c.type === 'group' || c.type === 'room'); } catch (e) { return false; }
 }
 /** บันทึกลงชีตเสร็จก่อนเสมอ แล้วค่อยส่ง · ส่งพลาด → เก็บไว้ให้กด "ส่งแจ้งอีกครั้ง" (เวลาที่บันทึกไม่หาย) */
-async function shareToGroup(text) {
+async function shareToGroup(text, card) {
   if (!text || !inGroup()) return;
   try {
     if (!liff.isApiAvailable('sendMessages')) throw new Error('ส่งข้อความจากหน้านี้ไม่ได้');
-    await liff.sendMessages([{ type: 'text', text: text.slice(0, 4900) }]);
+    let sent = false;
+    if (card) {   // การ์ดน้องพร้อม (ร้านที่เปิดสวิตช์) · ส่งไม่ผ่าน → ส่งข้อความธรรมดาแทน
+      try { await liff.sendMessages([card]); sent = true; } catch (e) { console.warn('card', e); }
+    }
+    if (!sent) await liff.sendMessages([{ type: 'text', text: text.slice(0, 4900) }]);
     setPendingShare('');
   } catch (e) {
     setPendingShare(text);
