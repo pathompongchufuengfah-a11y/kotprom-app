@@ -606,7 +606,7 @@ function inGroup() {
 async function shareToGroup(text, card) {
   if (!text || !inGroup()) return;
   try {
-    if (!liff.isApiAvailable('sendMessages')) throw new Error('ส่งข้อความจากหน้านี้ไม่ได้');
+    if (!liff.isInClient()) throw new Error('ต้องเปิดลิงก์จากในแอป LINE');
     let sent = false;
     if (card) {   // การ์ดน้องพร้อม (ร้านที่เปิดสวิตช์) · ส่งไม่ผ่าน → ส่งข้อความธรรมดาแทน
       try { await liff.sendMessages([card]); sent = true; } catch (e) { console.warn('card', e); }
