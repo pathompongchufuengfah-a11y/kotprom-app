@@ -615,7 +615,9 @@ async function shareToGroup(text, card) {
     setPendingShare('');
   } catch (e) {
     setPendingShare(text);
-    toast('📣 บันทึกเวลาแล้ว แต่ส่งแจ้งในกลุ่มไม่สำเร็จ\nกด "ส่งแจ้งอีกครั้ง" ได้เลย', 'warn', 8000);
+    // บอกสาเหตุจริงจาก LINE ด้วย (เช่น ไม่ได้ติ๊ก chat_message.write) จะได้แก้ถูกจุด
+    const why = String((e && (e.code || e.message)) || '').slice(0, 120);
+    toast('📣 บันทึกเวลาแล้ว แต่ส่งแจ้งในกลุ่มไม่สำเร็จ\nกด "ส่งแจ้งอีกครั้ง" ได้เลย' + (why ? '\n(' + why + ')' : ''), 'warn', 10000);
   }
   render();
 }
