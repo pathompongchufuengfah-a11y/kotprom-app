@@ -832,6 +832,7 @@ function renderTime() {
   else html += hero(clock, (busy.checkout ? 'กำลังบันทึก… ' : 'เลิกงานแล้ว ') + esc(d.out), '',
     '<div class="muted" style="margin-top:6px">เหนื่อยหน่อยนะวันนี้ พักผ่อนเยอะๆ</div>' + (showOt && !busy.checkout ? `<div class="result">${d.rounds ? `OT ${baht(d.rounds * ot.rate)} บาท<small>${d.rounds} รอบ</small>` : 'ไม่มี OT<small>ยังไม่ถึงรอบ</small>'}</div>` : '') + lateLine, 'sleepy');
 
+  if (S.branch) html += `<div class="center" style="margin:-4px 0 10px"><span class="pill blue" style="font-size:16px;padding:4px 12px">🏬 ${esc(S.branch)}</span></div>`;
   const sf = S.shift && S.shift.today;
   if (sf && !sf.off) html += `<div class="center" style="margin:-4px 0 10px"><span class="sft ${sftCls(sf.name, S.shift.list)}" style="padding:4px 14px;font-size:17px">วันนี้ กะ${esc(sf.name)} ${esc(sf.in)}–${esc(sf.out)}</span></div>`;
 
@@ -1263,7 +1264,7 @@ function bossTodayHtml(r) {
                 x.early ? '<span class="pill warn">กลับก่อน</span>' : !x.ot ? '<span class="pill">ครัว</span>' : '';
     const late = x.late || x.fine ? ` · <span style="color:var(--bad)">สาย ${x.late} น. −${baht(x.fine)}</span>` : '';
     const amt = x.ot && x.status === ST_WORK ? `${baht(x.money)}<small>OT ${x.rounds} รอบ</small>` : '<small>–</small>';
-    return `<div class="item" style="flex-wrap:wrap"><div class="main"><div class="name">${esc(x.name)} ${tag}</div>
+    return `<div class="item" style="flex-wrap:wrap"><div class="main"><div class="name">${esc(x.name)} ${tag}${x.branch ? ` <span class="pill blue">${esc(x.branch)}</span>` : ''}</div>
       <div class="sub num">${esc(x.in || '–')} → ${esc(x.out || (x.status === ST_WORK ? 'ยังอยู่' : '–'))}${late}</div></div>
       <div class="amt">${amt}</div>
       ${x.photo ? `<button class="small-btn ghost" data-ph="${esc(x.photo)}" aria-label="ดูรูปเข้างานของ ${esc(x.name)}">📸</button>` : ''}
@@ -1411,6 +1412,8 @@ function bossSetHtml(r) {
       ${e.owner ? '<span class="pill">เจ้าของ</span>' : e.manager ? '<span class="pill blue">ผู้จัดการ</span>' : ''}</div><div class="sub">${esc(e.dept)}</div></div>
     ${r.shiftOn && !e.owner ? `<div class="row" style="width:100%"><span class="muted" style="font-size:15px">กะประจำ</span><select data-esh="${i}" style="flex:1" aria-label="กะประจำของ ${esc(e.name)}">
       ${r.shifts.map(x => `<option ${x.name === e.shift ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}${e.shift && !r.shifts.some(x => x.name === e.shift) ? '<option selected value="">—</option>' : ''}</select></div>` : ''}
+    ${r.branches && r.branches.length && !e.owner ? `<div class="row" style="width:100%"><span class="muted" style="font-size:15px">สาขาประจำ</span><select data-ebr="${i}" style="flex:1" aria-label="สาขาประจำของ ${esc(e.name)}">
+      ${[''].concat(r.branches.map(b => b.name)).map(b => `<option value="${esc(b)}" ${(e.branch || '') === b ? 'selected' : ''}>${esc(b || r.mainName)}</option>`).join('')}</select></div>` : ''}
     <div class="row" style="width:100%"><input type="number" id="w${i}" value="${e.wage}" style="width:110px"><span class="muted">บ./วัน</span>
       <button class="small-btn ghost" data-wage="${i}">บันทึก</button>
       ${e.owner ? '' : `<button class="small-btn ${e.manager ? 'ghost' : ''}" data-role="${i}">${e.manager ? 'ถอดผู้จัดการ' : 'ตั้งเป็นผู้จัดการ'}</button>`}</div></div>`).join('');
@@ -1423,6 +1426,7 @@ function bossSetHtml(r) {
       <div class="note ok">ผูกกลุ่มไลน์ร้าน: เชิญบอท "โคตรพร้อม" เข้ากลุ่ม แล้วพิมพ์<br><b>ผูกร้าน ${esc(S.shopId || '')} ${esc(r.code || '')}</b></div></div>
     ${r.hasGps ? '' : gpsCard}
     <div class="card"><h2>👥 พนักงาน · ค่าแรง · ผู้จัดการ</h2><div class="muted" style="margin-bottom:4px">แตะ "ตั้งเป็นผู้จัดการ" ให้คนนั้นเห็นแท็บผู้จัดการ</div><div class="list">${emps}</div></div>
+    ${branchCard(r)}
     <div class="more center">${moreBtn('set', 'รอบจ่าย · กะ · ตั้งค่าอื่นๆ')}</div>
     ${moreBox('set', paySetHtml('os', r) + (r.hasGps ? gpsCard : '') +
       `<div class="card"><h2>🔑 รหัส 4 ตัวของร้าน</h2><div class="clock" style="font-size:40px">${esc(r.code || '—')}</div>
@@ -1431,8 +1435,64 @@ function bossSetHtml(r) {
       (r.deduct ? `<div class="card"><h2>📅 หักแรงต่อวัน</h2>${dedEd('od', r.deduct)}<button class="small-btn" id="odSave" style="width:100%;margin-top:10px">บันทึกตารางหักแรง</button></div>` : '') +
       `<div class="card"><h2>⚙️ ตั้งค่าอื่นๆ</h2><div class="list">` + r.items.map((x, i) => `<div class="item" style="flex-wrap:wrap">
       <div class="main" style="min-width:60%"><div class="name">${esc(x.key)}</div>${x.hint ? `<div class="sub">${esc(x.hint)}</div>` : ''}</div>
-      ${x.yesno ? `<div class="seg" style="width:100%;margin:6px 0 0">${['ใช่', 'ไม่'].map(v => `<button data-yn="${i}:${v}" class="${(x.value || (x.key === 'ข้อความแบบการ์ด' || x.key === 'ถ่ายรูปตอนเข้างาน' ? 'ไม่' : 'ใช่'))   /* ช่องว่าง = ค่าเดิมของระบบ */ === v ? 'on' : ''}">${v}</button>`).join('')}</div>` :
+      ${x.yesno ? `<div class="seg" style="width:100%;margin:6px 0 0">${['ใช่', 'ไม่'].map(v => `<button data-yn="${i}:${v}" class="${(x.value || (['ข้อความแบบการ์ด', 'ถ่ายรูปตอนเข้างาน', 'ทำงานข้ามสาขา'].indexOf(x.key) >= 0 ? 'ไม่' : 'ใช่'))   /* ช่องว่าง = ค่าเดิมของระบบ */ === v ? 'on' : ''}">${v}</button>`).join('')}</div>` :
         `<div class="row" style="width:100%"><input id="set${i}" value="${esc(x.value)}" style="flex:1"><button class="small-btn" data-set="${i}">บันทึก</button></div>`}</div>`).join('') + '</div></div>')}`;
+}
+
+/** 🏬 สาขา (เจ้าของ): รายการ + แก้/เพิ่ม · ค่าที่เว้นว่าง = ใช้ค่าของร้านหลัก */
+let brEdit = null;
+const brOff = s => s === 'ไม่มี' ? [] : String(s || '').split(',').map(d => DOW_FULL.indexOf(d.trim())).filter(d => d >= 0);
+function branchCard(r) {
+  const bs = r.branches || [], m = r.main || {};
+  const list = bs.map((b, i) => `<div class="item"><div class="main"><div class="name">🏬 ${esc(b.name)} ${b.group ? '<span class="pill ok">มีกลุ่มไลน์</span>' : ''}</div>
+      <div class="sub">เข้า ${esc(b.in || m.in + ' (ตามร้าน)')} · ปิด ${esc(b.close || m.close + ' (ตามร้าน)')} · หยุด ${esc(b.off || 'ตามร้าน')} · ${esc(String(b.radius || m.radius))} ม.</div></div>
+      <button class="small-btn ghost" data-bre="${i}">${brEdit && brEdit.old === b.name ? 'ปิด' : 'แก้'}</button></div>`).join('');
+  let form = '';
+  if (brEdit) {
+    const e = brEdit, shopOff = e.off === null;
+    form = `<div class="mbox" style="margin-top:10px"><h2 style="margin:0 0 6px">${e.old ? 'แก้สาขา ' + esc(e.old) : 'เพิ่มสาขาใหม่'}</h2>
+      <div class="field"><label for="brName">ชื่อสาขา</label><input id="brName" value="${esc(e.name)}" maxlength="30" placeholder="เช่น สาขา 2 · บางนา"></div>
+      <div class="field"><span class="lb">ตำแหน่งสาขา</span>${locBox('br', e.lat ? { lat: e.lat, lng: e.lng } : null, busy.brgps)}</div>
+      <div class="row" style="flex-wrap:nowrap"><div class="field" style="flex:1"><label for="brIn">เวลาเข้างาน</label><input type="time" id="brIn" value="${esc(e.in)}"></div>
+        <div class="field" style="flex:1"><label for="brClose">เวลาปิดร้าน</label><input type="time" id="brClose" value="${esc(e.close)}"></div></div>
+      <div class="help" style="margin-top:-6px">เว้นว่าง = ใช้เวลาของร้านหลัก (เข้า ${esc(m.in)} · ปิด ${esc(m.close)})</div>
+      <div class="field"><label for="brRad">รัศมี (เมตร)</label><input id="brRad" type="number" inputmode="numeric" min="100" value="${esc(e.radius)}" placeholder="ว่าง = ${esc(String(m.radius))} ตามร้าน"></div>
+      <div class="field" style="margin:0"><span class="lb">วันหยุดของสาขา</span>
+        <div class="seg" style="margin:0 0 8px"><button data-bro="shop" class="${shopOff ? 'on' : ''}">ตามร้านหลัก (${esc(m.off || 'ไม่มี')})</button><button data-bro="own" class="${shopOff ? '' : 'on'}">ตั้งเอง</button></div>
+        ${shopOff ? '' : `<div class="days">${WEEK.map((d, i) => { const dw = (i + 1) % 7; return `<button data-brd="${dw}" class="${e.off.indexOf(dw) >= 0 ? 'on' : ''}" aria-pressed="${e.off.indexOf(dw) >= 0}">${d}</button>`; }).join('')}</div>`}</div>
+      <button class="btn" id="brSave" style="margin:14px 0 0;min-height:64px;font-size:22px">${busy.setBranch ? 'กำลังบันทึก…' : e.old ? 'บันทึกสาขา' : 'เพิ่มสาขา'}</button>
+      ${e.old ? `<button class="small-btn red" id="brDel" style="width:100%;margin-top:10px">${armed === 'brDel' ? 'แตะอีกครั้ง ลบสาขา' : 'ลบสาขานี้'}</button>` : ''}</div>`;
+  }
+  return `<div class="card"><h2>🏬 สาขา</h2>
+    <div class="muted" style="font-size:16px">${bs.length ? 'พนักงานเข้างานได้เฉพาะสาขาประจำ · อยากให้ไปช่วยสาขาอื่นได้ เปิด "ทำงานข้ามสาขา" ในตั้งค่าอื่นๆ' : 'มีร้านเดียว = ไม่ต้องทำอะไร · เปิดสาขาใหม่ กดเพิ่มสาขาได้เลย'}</div>
+    ${bs.length ? `<div class="list" style="margin-top:6px"><div class="item"><div class="main"><div class="name">🏠 ${esc(r.mainName)}</div><div class="sub">ร้านหลัก · ตามค่าของร้าน</div></div></div>${list}</div>
+      <div class="row" style="margin-top:8px"><input id="brMain" value="${esc(r.mainName)}" maxlength="30" style="flex:1" aria-label="ชื่อสาขาหลัก"><button class="small-btn ghost" id="brMainGo">เปลี่ยนชื่อสาขาหลัก</button></div>` : ''}
+    ${brEdit && !brEdit.old ? form : `<button class="small-btn" id="brAdd" style="width:100%;margin-top:10px">＋ เพิ่มสาขา</button>`}
+    ${brEdit && brEdit.old ? form : ''}</div>`;
+}
+function wireBranch(r) {
+  const $ = id => document.getElementById(id);
+  const keep = () => { if (!brEdit) return; ['Name', 'In', 'Close', 'Rad'].forEach(k => { const el = $('br' + k); if (el) brEdit[k === 'Rad' ? 'radius' : k.toLowerCase()] = el.value; }); };
+  if ($('brAdd')) $('brAdd').onclick = () => { brEdit = { old: '', name: '', lat: 0, lng: 0, in: '', close: '', radius: '', off: null }; renderBoss(); };
+  document.querySelectorAll('[data-bre]').forEach(b => b.onclick = () => {
+    const x = r.branches[+b.dataset.bre];
+    brEdit = brEdit && brEdit.old === x.name ? null : { old: x.name, name: x.name, lat: x.lat, lng: x.lng, in: x.in, close: x.close, radius: x.radius, off: x.off ? brOff(x.off) : null };
+    renderBoss();
+  });
+  document.querySelectorAll('[data-bro]').forEach(b => b.onclick = () => { keep(); brEdit.off = b.dataset.bro === 'shop' ? null : (brEdit.off || []); renderBoss(); });
+  document.querySelectorAll('[data-brd]').forEach(b => b.onclick = () => { keep(); const d = +b.dataset.brd, i = brEdit.off.indexOf(d); if (i >= 0) brEdit.off.splice(i, 1); else brEdit.off.push(d); renderBoss(); });
+  if (brEdit) wireLoc('br', (lat, lng) => { keep(); brEdit.lat = lat; brEdit.lng = lng; renderBoss(); toast('ได้ตำแหน่งสาขาแล้วน้า~', 'ok', 3000); }, b => { keep(); busy.brgps = b; renderBoss(); });
+  if ($('brSave')) $('brSave').onclick = async () => {
+    keep();
+    const e = brEdit;
+    if (!e.name.trim()) return toast('ใส่ชื่อสาขาก่อนนะ', 'bad');
+    if (!e.lat) return toast('ตั้งตำแหน่งสาขาก่อนนะ', 'bad');
+    const res = await act('setBranch', { old: e.old, name: e.name.trim(), lat: e.lat, lng: e.lng, in: e.in, close: e.close, radius: e.radius, off: e.off });
+    if (res && res.ok) { brEdit = null; loadBoss(); refresh(); }
+  };
+  if ($('brDel')) $('brDel').onclick = () => twoTap('brDel', async () => { const res = await act('setBranch', { old: brEdit.old, remove: true }); if (res && res.ok) { brEdit = null; loadBoss(); refresh(); } });
+  if ($('brMainGo')) $('brMainGo').onclick = async () => { const res = await act('setBranch', { main: true, name: $('brMain').value.trim() }); if (res && res.ok) { loadBoss(); refresh(); } };
+  document.querySelectorAll('[data-ebr]').forEach(el => el.onchange = async () => { const e = r.emps[+el.dataset.ebr]; const res = await act('setEmpBranch', { name: e.name, branch: el.value }); if (res && res.ok) loadBoss(); });
 }
 
 function wireBoss(app) {
@@ -1547,6 +1607,7 @@ function wireBoss(app) {
     if (cp) cp.onclick = () => copyText(val('shopLink'));
     const sc = document.getElementById('setCode');
     if (sc) sc.onclick = async () => { const res = await act('setCode', { code: val('newCode') }); if (res && res.ok) loadBoss(); };
+    wireBranch(r);
     app.querySelectorAll('[data-esh]').forEach(el => el.onchange = async () => { const e = r.emps[+el.dataset.esh]; await act('setEmpShift', { name: e.name, shift: el.value }); loadBoss(); });
     wirePaySet('os', () => renderBoss(),
       async b => { const res = await act('setPayCycle', b); if (res && res.ok) { moreOpen = 'set'; bossCache.pay = null; loadBoss(); } return res && res.ok; },
@@ -1690,7 +1751,7 @@ function wirePaySet(p, redraw, saveCyc, saveSh) {
   };
 }
 
-const WZ_NEW = () => ({ step: 1, name: '', owner: '', lat: null, lng: null, gps: '', open: '10:00', close: '21:00',
+const WZ_NEW = () => ({ step: 1, name: '', owner: '', email: '', lat: null, lng: null, gps: '', open: '10:00', close: '21:00',
                         holidays: ['จ'], type: 'food', ot: true, food: true, fine: false, until: '', tune: '',
                         otBaht: 50, otFirst: 30, otStep: 60, foodBaht: 40, fineBaht: 5, graceMin: 2, passFee: 100,
                         depts: ['หน้าร้าน', 'ครัว', 'แคชเชียร์'], staff: [{ name: '', wage: '', dept: 'หน้าร้าน', manager: false }],
@@ -1866,6 +1927,7 @@ function renderWizard(app) {
     h = `${steps}<div class="stepname">ขั้น 1 · ข้อมูลร้าน</div><div class="card">
       <div class="field"><label for="wName">ชื่อร้าน</label><input id="wName" value="${esc(wz.name)}" maxlength="60"></div>
       <div class="field"><label for="wOwner">ชื่อเล่นเจ้าของร้าน (คำเดียว)</label><input id="wOwner" value="${esc(wz.owner)}" maxlength="20"></div>
+      <div class="field"><label for="wEmail">Gmail เจ้าของร้าน (ไม่บังคับ)</label><input id="wEmail" type="email" inputmode="email" value="${esc(wz.email || '')}" placeholder="ส่งไฟล์ข้อมูลร้านไปไว้ใน Drive ของเจ้าของ" autocomplete="off"></div>
       <div class="field"><span class="lb">ตำแหน่งร้าน</span>${locBox('wl', wz.lat !== null ? { lat: wz.lat, lng: wz.lng } : null, wz.gps)}</div>
       <div class="row" style="flex-wrap:nowrap"><div class="field" style="flex:1"><label for="wOpen">เวลาเข้างาน</label><input type="time" id="wOpen" value="${esc(wz.open)}"></div>
         <div class="field" style="flex:1"><label for="wClose">เวลาปิดร้าน</label><input type="time" id="wClose" value="${esc(wz.close)}"></div></div>
@@ -1935,7 +1997,7 @@ function renderWizard(app) {
 
   const $ = id => document.getElementById(id);
   const bind = (id, key, ev) => { const el = $(id); if (el) el[ev || 'oninput'] = () => { wz[key] = el.type === 'checkbox' ? el.checked : el.value; saveWz(); if (id === 'wName' || id === 'wOwner') { const nx = $('wzNext'); if (nx) nx.disabled = !okName(); } }; };
-  bind('wName', 'name'); bind('wOwner', 'owner'); bind('wOpen', 'open', 'onchange'); bind('wClose', 'close', 'onchange'); bind('wUntil', 'until', 'onchange');
+  bind('wName', 'name'); bind('wOwner', 'owner'); bind('wEmail', 'email'); bind('wOpen', 'open', 'onchange'); bind('wClose', 'close', 'onchange'); bind('wUntil', 'until', 'onchange');
   // ขั้น 1: ตำแหน่งร้านจากลิงก์ / ตำแหน่งตอนนี้
   wireLoc('wl', (lat, lng) => { wz.lat = lat; wz.lng = lng; wz.gps = ''; saveWz(); if (adm.view === 'wizard') renderWizard(app); toast('ได้ตำแหน่งร้านแล้วน้า~', 'ok', 3000); },
           b => { wz.gps = b; if (adm.view === 'wizard' && wz.step === 1) renderWizard(app); });
@@ -2014,7 +2076,7 @@ function renderWizard(app) {
   $('wzNext').onclick = async () => {
     if (wz.step < 4) { wz.step++; saveWz(); renderWizard(app); window.scrollTo(0, 0); return; }
     const sc = staffCheck();
-    const res = await act('adminCreateShop', { name: wz.name.trim(), owner: wz.owner.trim(), lat: wz.lat, lng: wz.lng,
+    const res = await act('adminCreateShop', { name: wz.name.trim(), owner: wz.owner.trim(), ownerEmail: (wz.email || '').trim(), lat: wz.lat, lng: wz.lng,
       open: wz.open, close: wz.close, holidays: wz.holidays, type: wz.type, ot: wz.ot, food: wz.food, fine: wz.fine,
       otBaht: wz.otBaht, otFirst: wz.otFirst, otStep: wz.otStep, foodBaht: wz.foodBaht,
       fineBaht: wz.fineBaht, graceMin: wz.graceMin, passFee: wz.passFee,
@@ -2098,6 +2160,8 @@ function renderAdmShop(app) {
       <button class="btn" id="sRenew" style="margin:10px 0 12px">รับเงินแล้ว ต่อ 1 เดือน<small>${sh.until ? 'ยังไม่ครบ = ต่อจากวันเดิม · เลยแล้ว = นับจากวันนี้' : 'เริ่มนับจากวันนี้'}</small></button>
       <div class="row"><span style="flex:1;font-weight:700">หรือตั้งวันเอง</span><input type="date" id="sUntil" value="${esc(sh.until)}"><button class="small-btn" id="sUntilGo">บันทึก</button></div></div>` : '') + `
       ${r.gps ? `<div class="card"><h2>ตำแหน่งร้าน</h2>${locBox('al', r.gps, admLocBusy)}</div>` : ''}
+      <div class="card"><h2>📧 ไฟล์ร้านไป Drive เจ้าของ</h2><div class="muted" style="font-size:16px">${r.ownerEmail ? 'ส่งให้ ' + esc(r.ownerEmail) + ' แล้ว · ส่งซ้ำได้' : 'แชร์ไฟล์ชีตร้าน (และรูปเข้างาน) ให้ Gmail ของเจ้าของ'}</div>
+        <div class="row" style="margin-top:8px"><input id="sMail" type="email" inputmode="email" value="${esc(r.ownerEmail || '')}" placeholder="owner@gmail.com" style="flex:1"><button class="small-btn" id="sMailGo">ส่ง</button></div></div>
       <div class="card"><h2>การใช้งาน</h2>
       <button class="btn quiet${armed === 'sClose' ? ' confirm' : ''}" id="sClose" style="margin:0">${armed === 'sClose' ? 'แตะอีกครั้ง ยืนยัน' : closed ? 'เปิดใช้งานร้านอีกครั้ง' : 'ปิดการใช้งานร้าน'}<small>${closed ? 'พนักงานกลับมาใช้ได้ทันที' : 'พนักงานร้านนี้จะใช้ไม่ได้ (ข้อมูลยังอยู่)'}</small></button></div>`)}
     <div class="gap"></div>
@@ -2128,6 +2192,7 @@ function renderAdmShop(app) {
     async b => { const res = await act('adminSetShop', { shop: sh.id, shifts: b }); if (res && res.ok) { moreOpen = 'as'; loadAdmin(); } return res && res.ok; });
   app.querySelectorAll('[data-eu]').forEach(b => b.onclick = () => twoTap('eu' + b.dataset.eu, () => edit({ op: 'unbind', name: r.staff[+b.dataset.eu].name })));
   app.querySelectorAll('[data-el]').forEach(b => b.onclick = () => twoTap('el' + b.dataset.el, () => { const e = r.staff[+b.dataset.el]; edit({ op: e.left ? 'back' : 'leave', name: e.name }); }));
+  if ($('sMailGo')) $('sMailGo').onclick = async () => { const res = await act('adminSetShop', { shop: sh.id, ownerEmail: $('sMail').value.trim() }); if (res && res.ok) loadAdmin(); };
   if ($('sUntilGo')) $('sUntilGo').onclick = async () => { const res = await act('adminSetShop', { shop: sh.id, until: $('sUntil').value }); if (res && res.ok) loadAdmin(); };
   if ($('sClose')) $('sClose').onclick = () => twoTap('sClose', async () => { const res = await act('adminSetShop', { shop: sh.id, status: closed ? 'ใช้งาน' : 'ปิด' }); if (res && res.ok) loadAdmin(); });
 }
