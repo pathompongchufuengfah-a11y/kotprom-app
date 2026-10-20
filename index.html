@@ -28,6 +28,10 @@
   .sync { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 50; background: #fff; color: var(--muted); border: 2px solid var(--line);
     border-radius: 999px; padding: 3px 12px; font-size: 13px; font-weight: 600; box-shadow: var(--shadow); }
   .sync[hidden] { display: none; }
+  .dedt { display: grid; grid-template-columns: 34px repeat(5, minmax(0, 1fr)); gap: 4px; align-items: center; }
+  .dedt .h { font-size: 11.5px; line-height: 1.25; color: var(--muted); text-align: center; font-weight: 600; }
+  .dedt .d { font-weight: 700; font-size: 15px; }
+  .dedt input { width: 100%; min-width: 0; padding: 8px 2px; text-align: center; font-size: 16px; }
 
   header { padding: 18px 20px 6px; max-width: 560px; margin: 0 auto; display: flex; align-items: flex-end; gap: 12px; }
   header .who { flex: 1; min-width: 0; }
@@ -690,8 +694,11 @@ function render() {
   const dt = document.getElementById('date');
   dt.hidden = false;
   dt.textContent = S.day.label;
-  const tabs = [['time', TAB_ICON.time, 'ลงเวลา'], ['leave', TAB_ICON.leave, 'ขอลา'], ['my', TAB_ICON.my, 'ของฉัน'], ['audit', TAB_ICON.audit, 'ประวัติ']];
+  // ไม่นับเป็นพนักงาน (ผู้สร้าง/แอดมิน/เจ้าของ/ผู้จัดการที่ไม่ต้องลงเวลา) = ไม่มีหน้าลงเวลา/ขอลา/ของฉัน
+  const tabs = S.me.noClock ? [['audit', TAB_ICON.audit, 'ประวัติ']]
+    : [['time', TAB_ICON.time, 'ลงเวลา'], ['leave', TAB_ICON.leave, 'ขอลา'], ['my', TAB_ICON.my, 'ของฉัน'], ['audit', TAB_ICON.audit, 'ประวัติ']];
   if (S.me.boss) tabs.push(['boss', TAB_ICON.boss, 'ผู้จัดการ']);
+  if (S.me.noClock && !tabs.some(t => t[0] === tab)) { tab = S.me.boss ? 'boss' : 'audit'; setTimeout(() => { if (tab === 'boss') loadBoss(); else loadAudit(); }, 0); }
   const nav = document.getElementById('tabs');
   nav.hidden = false;
   nav.innerHTML = tabs.map(t => `<button class="${tab === t[0] ? 'on' : ''}" data-tab="${t[0]}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${t[1]}"/></svg>${t[2]}</button>`).join('');
@@ -817,7 +824,7 @@ function renderTime() {
 
   // 1) สถานะ
   if (busy.checkin) html += hero(clock, 'กำลังหาตำแหน่ง…', 'warn', '<div class="muted" style="margin-top:8px">ถือมือถือนิ่งๆ สักครู่น้า~</div>', 'search');
-  else if (S.day.closedDay) html += hero('<div class="result">พักให้เต็มที่นะ</div>', 'วันนี้ร้านหยุด', '', '', 'sleepy');
+  else if (S.day.closedDay) html += hero('<div class="result">พักให้เต็มที่นะ</div>', S.day.holiday ? '🏮 วันนี้ร้านหยุด · ' + esc(S.day.holiday) : 'วันนี้ร้านหยุด', '', '', 'sleepy');
   else if (offStatus) html += hero(clock, 'บันทึกว่า ' + esc(d.status), 'bad', '<div class="muted" style="margin-top:8px">ถ้าผิด แจ้งผู้จัดการ</div>');
   else if (!checkedIn) html += hero(clock, S.day.works ? 'ยังไม่เข้างาน' : S.shift ? 'วันนี้หยุดตามตารางกะ' : 'วันนี้ไม่ใช่วันทำงานของคุณ', '', '', S.day.works ? undefined : 'sleepy');
   else if (!out) html += hero(clock, 'ทำงานอยู่ · เข้า ' + esc(d.in), d.late ? 'warn' : 'ok', lateLine);
@@ -831,7 +838,7 @@ function renderTime() {
   // 2) ปุ่มหลัก (ทีละปุ่ม)
   if (!S.day.closedDay && !offStatus) {
     if (!checkedIn && !busy.checkin) {
-      html += `<button class="btn green" id="bIn">เข้างาน<small>กดตอนอยู่ที่ร้าน</small></button>`;
+      html += `<button class="btn green" id="bIn">เข้างาน<small>${S.photo ? '📸 ถ่ายรูปก่อน แล้วบันทึกเลย' : 'กดตอนอยู่ที่ร้าน'}</small></button>`;
     } else if (checkedIn && !out) {
       if (showOt && v.beforeStd) {
         // ก่อนเวลาปิดมาตรฐาน = กลับก่อน (ไม่ได้ OT ทั้งคืน)
@@ -850,6 +857,8 @@ function renderTime() {
     }
     if (!inGroup() && !checkedIn) html += '<div class="muted center" style="margin-top:10px">💡 เปิดหน้านี้จากในกลุ่มร้าน คนอื่นจะเห็นตอนคุณลงเวลา</div>';
   }
+
+  html += swapHtml(true);           // คำขอสลับกะที่รอตอบ ขึ้นใกล้ๆ ปุ่ม (ไม่ต้องเลื่อนหา)
 
   // 3) ใครยังอยู่ที่ร้าน
   if (checkedIn || t >= ot.std) {
@@ -880,6 +889,7 @@ function renderTime() {
       `<div style="${x.k === S.day.key ? 'color:var(--brand-ink)' : ''}">${DOW_ALL[x.dow]} ${+x.k.slice(8)}<span class="sft ${x.name === 'หยุด' ? 'off' : x.in ? sftCls(x.name, lst) : 'na'}">${esc(x.name ? (x.name.length > 4 ? x.name.slice(0, 3) : x.name) : '–')}</span></div>`).join('')}</div>
       ${S.shift.week.filter(x => x.in).length ? `<div class="muted" style="font-size:14px;margin-top:8px">${esc(S.shift.week.filter((x, i, a) => x.in && a.findIndex(y => y.name === x.name) === i).map(x => `${x.name} ${x.in}–${x.out}`).join(' · '))}</div>` : ''}</div>`;
   }
+  html += swapHtml(false);
   app.innerHTML = html;
 
   const on = (id, fn) => { const el = document.getElementById(id); if (el) el.onclick = fn; };
@@ -895,6 +905,55 @@ function renderTime() {
     act('early', { at: tap }, s => { s.today.early = at; s.today.out = at; s.staying = s.staying.filter(n => n !== s.me.name); });
   }));
   on('bClose', () => twoTap('close', () => doClose()));
+  wireSwap();
+}
+
+// ---------- 🔁 ขอสลับกะ: เลือกวัน + เพื่อน → เพื่อนกดยินยอมในแอป → สลับทันที + แจ้งกลุ่ม ----------
+const swapF = { date: '', with: '' };
+function swapHtml(cards) {
+  if (!S.shift) return '';
+  const sw = S.swaps || [], ppl = S.swapPeople || [];
+  let h = sw.map(x => {
+    const line = `${esc(x.label)} · ${esc(x.from)} ${esc(x.fromShift || '-')} ↔ ${esc(x.to)} ${esc(x.toShift || '-')}`;
+    const btns = x.toMe
+      ? `<div class="row" style="margin-top:12px"><button class="small-btn green" data-swy="${esc(x.id)}" style="flex:1">ยินยอม</button>
+         <button class="small-btn red" data-swn="${esc(x.id)}" style="flex:1">${armed === 'swn' + x.id ? 'แตะอีกครั้ง' : 'ไม่ยินยอม'}</button></div>`
+      : `<div class="row" style="margin-top:12px"><span class="muted" style="flex:1">รอ ${esc(x.to)} ตอบ</span>
+         <button class="small-btn ghost" data-swc="${esc(x.id)}">${armed === 'swc' + x.id ? 'แตะอีกครั้ง' : 'ยกเลิก'}</button></div>`;
+    return `<div class="card"${x.toMe ? ' style="border-color:var(--brand)"' : ''}><h2 style="margin:0">🔁 ${x.toMe ? esc(x.from) + ' ขอสลับกะกับคุณ' : 'คำขอสลับกะ'}</h2>
+      <div class="muted">${line}</div>${btns}</div>`;
+  }).join('');
+  if (cards) return h ? '<div class="gap"></div>' + h : '';
+  if (!ppl.length) return '';
+  const days = [];
+  const base = new Date(nowMs());
+  for (let i = 0; i < 14; i++) {
+    const d = new Date(base.getFullYear(), base.getMonth(), base.getDate() + i);
+    const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    if (k < S.day.key) continue;
+    const c = (S.cal || []).find(x => x.k === k);
+    days.push(`<option value="${k}"${swapF.date === k ? ' selected' : ''}>${DOW_ALL[d.getDay()]} ${dmy(k)}${c && c.shift ? ' · กะ' + esc(c.shift) : ''}</option>`);
+  }
+  const form = `<div class="card"><h2>🔁 ขอสลับกะกับเพื่อน</h2>
+    <div class="muted" style="font-size:15px">เพื่อนกดยินยอมในแอป → สลับในตารางกะทันที · แจ้งกลุ่มให้ด้วย</div>
+    <div class="field"><label for="swD">วันที่</label><select id="swD"><option value="">เลือกวัน</option>${days.join('')}</select></div>
+    <div class="field"><label for="swW">สลับกับ</label><select id="swW"><option value="">เลือกเพื่อน</option>${ppl.map(n => `<option${swapF.with === n ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select></div>
+    <button class="btn" id="swGo" style="margin:0;min-height:64px;font-size:22px"${busy.swapReq ? ' disabled' : ''}>${busy.swapReq ? 'กำลังส่ง…' : 'ส่งคำขอ'}</button></div>`;
+  return `<div class="gap"></div><div class="more center">${moreBtn('swap', '🔁 ขอสลับกะ')}</div>${moreBox('swap', form)}`;
+}
+function wireSwap() {
+  const d = document.getElementById('swD'), w = document.getElementById('swW'), g = document.getElementById('swGo');
+  if (d) d.onchange = () => { swapF.date = d.value; };
+  if (w) w.onchange = () => { swapF.with = w.value; };
+  if (g) g.onclick = async () => {
+    if (!swapF.date || !swapF.with) return toast('เลือกวันและเพื่อนก่อนนะ', 'bad');
+    const r = await act('swapReq', { date: swapF.date, with: swapF.with });
+    if (r && r.ok) { swapF.date = ''; swapF.with = ''; }
+  };
+  const ans = (id, extra) => act('swapAnswer', Object.assign({ id }, extra), s => { s.swaps = (s.swaps || []).filter(x => x.id !== id); });
+  document.querySelectorAll('[data-swy]').forEach(b => b.onclick = () => ans(b.dataset.swy, { yes: true }));
+  document.querySelectorAll('[data-swn]').forEach(b => b.onclick = () => twoTap('swn' + b.dataset.swn, () => ans(b.dataset.swn, { yes: false })));
+  document.querySelectorAll('[data-swc]').forEach(b => b.onclick = () => twoTap('swc' + b.dataset.swc, () => ans(b.dataset.swc, { cancel: true })));
 }
 
 async function doClose(time) {
@@ -906,14 +965,55 @@ async function doClose(time) {
 async function checkIn() {
   if (busy.checkin) return;
   const tap = nowMs();                       // รอบ A: เวลาที่แตะ ก่อนรอ GPS (สูงสุด ~10 วิ)
+  let photo = '';
+  if (S.photo) {                             // ร้านที่เปิด "ถ่ายรูปตอนเข้างาน" → ถ่ายก่อน แล้วค่อยหาตำแหน่ง
+    try { photo = await takePhoto(`${S.me.name} · ${hhmm(tap)} น. · ${dmy(S.day.key)}`); }
+    catch (e) { return toast('📸 ' + e.message, 'bad', 7000); }
+    if (!photo) return;
+  }
   busy.checkin = true; render();
   let pos;
   try { pos = await getBestPosition(); }
   catch (e) { busy.checkin = false; render(); return toast('❌ ' + e.message, 'bad', 9000); }
   busy.checkin = false;
   const c = pos.coords;
-  act('checkin', { lat: c.latitude, lng: c.longitude, acc: Math.round(c.accuracy), at: tap },
+  act('checkin', { lat: c.latitude, lng: c.longitude, acc: Math.round(c.accuracy), at: tap, photo: photo || undefined },
       s => { s.today = { status: ST_WORK, in: hhmm(tap), out: '', early: '', rounds: 0 }; });
+}
+
+/** 📸 เปิดกล้องหน้า → ย่อเหลือด้านยาว 640px + แถบชื่อ/เวลา → JPEG ไม่เกิน ~80KB ('' = ปิดกล้องไปเฉยๆ) */
+function takePhoto(label) {
+  return new Promise((resolve, reject) => {
+    let inp = document.getElementById('camIn');
+    if (!inp) {
+      inp = document.createElement('input');
+      Object.assign(inp, { id: 'camIn', type: 'file', accept: 'image/*' });
+      inp.setAttribute('capture', 'user'); inp.style.display = 'none';
+      document.body.appendChild(inp);
+    }
+    inp.value = '';
+    inp.oncancel = () => resolve('');
+    inp.onchange = () => {
+      const f = inp.files && inp.files[0];
+      if (!f) return resolve('');
+      const img = new Image();
+      img.onerror = () => reject(new Error('เปิดรูปไม่ได้ ลองถ่ายใหม่'));
+      img.onload = () => {
+        const k = Math.min(1, 640 / Math.max(img.width, img.height)), c = document.createElement('canvas');
+        c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+        const g = c.getContext('2d'), bar = Math.max(30, Math.round(c.height * 0.06));
+        g.drawImage(img, 0, 0, c.width, c.height);
+        g.fillStyle = 'rgba(33,20,13,.7)'; g.fillRect(0, c.height - bar, c.width, bar);
+        g.fillStyle = '#fff'; g.font = `bold ${Math.round(bar * 0.55)}px sans-serif`; g.fillText(label, 10, c.height - bar * 0.3);
+        URL.revokeObjectURL(img.src);
+        let q = 0.72, u = c.toDataURL('image/jpeg', q);
+        while (u.length > 110000 && q > 0.3) { q -= 0.1; u = c.toDataURL('image/jpeg', q); }
+        resolve(u);
+      };
+      img.src = URL.createObjectURL(f);
+    };
+    inp.click();
+  });
 }
 
 /** เก็บตำแหน่งหลายครั้งภายใน ~10 วินาที เลือกค่าที่แม่นที่สุด (GPS ครั้งแรกมักคลาดเยอะ) */
@@ -1166,6 +1266,7 @@ function bossTodayHtml(r) {
     return `<div class="item" style="flex-wrap:wrap"><div class="main"><div class="name">${esc(x.name)} ${tag}</div>
       <div class="sub num">${esc(x.in || '–')} → ${esc(x.out || (x.status === ST_WORK ? 'ยังอยู่' : '–'))}${late}</div></div>
       <div class="amt">${amt}</div>
+      ${x.photo ? `<button class="small-btn ghost" data-ph="${esc(x.photo)}" aria-label="ดูรูปเข้างานของ ${esc(x.name)}">📸</button>` : ''}
       ${r.locked ? '' : `<button class="small-btn ghost" data-open="${esc(x.name)}">${bossOpen === x.name ? 'ปิด' : 'จัดการ'}</button>`}
       ${bossOpen === x.name ? `<div style="width:100%">${manageBox(x, r)}</div>` : ''}</div>`;
   }).join('');
@@ -1173,14 +1274,46 @@ function bossTodayHtml(r) {
     (r.locked ? '' : `<div class="field" style="margin:0"><span class="lb">🌙 ${r.closed ? 'แก้เวลาปิดร้าน' : 'บันทึกปิดร้านแทน'}</span>
       <div class="muted" style="font-size:16px">คนที่กดเลิกงานเองไม่ถูกเปลี่ยน</div>
       <div class="row"><input type="time" id="rcTime" value="${esc(r.closed ? r.closed.hm : '02:00')}" style="flex:1">
-      <button class="small-btn" id="rcGo">${armed === 'reclose' ? 'แตะอีกครั้ง' : 'บันทึก'}</button></div></div>`);
+      <button class="small-btn" id="rcGo">${armed === 'reclose' ? 'แตะอีกครั้ง' : 'บันทึก'}</button></div></div>`) +
+    (r.oldPhotos ? `<div class="field" style="margin:12px 0 0"><span class="lb">📸 รูปเข้างานของงวดที่ปิดแล้ว ${r.oldPhotos} รูป</span>
+      <button class="small-btn red" id="phPurge" style="width:100%">${armed === 'phPurge' ? 'แตะอีกครั้ง ลบเลย' : 'ลบรูปงวดที่ปิดแล้ว'}</button></div>` : '');
   return `
     <div class="card"><div class="row" style="flex-wrap:nowrap"><div style="flex:1;min-width:0"><h2 style="margin:0">${esc(r.label)}</h2>
       <div class="muted">${r.closed ? `🌙 ปิดร้าน ${esc(r.closed.hm)} · โดย ${esc(r.closed.by)}` : 'ยังไม่บันทึกปิดร้าน'}</div>
       ${r.locked ? '<span class="pill bad">งวดปิดแล้ว แก้ไม่ได้</span>' : ''}</div>${moreBtn('bt')}</div>
       ${moreBox('bt', extra)}</div>
+    ${holidayCard(r)}
     <div class="card">
       ${items ? `<div class="list">${items}</div><div class="total"><span>OT คืนนี้</span><span class="num">${baht(r.totalOt)} บาท</span></div>` : '<div class="muted">ไม่มีใครต้องทำงานวันนี้</div>'}</div>`;
+}
+
+/** เปิดดูรูปเข้างาน (แตะที่ไหนก็ปิด) */
+async function showPhoto(id) {
+  const box = document.createElement('div');
+  box.id = 'phView';
+  box.style.cssText = 'position:fixed;inset:0;z-index:20;background:rgba(33,20,13,.85);display:flex;align-items:center;justify-content:center;padding:16px;color:#fff;font-size:20px';
+  box.textContent = 'กำลังโหลดรูป…';
+  box.onclick = () => box.remove();
+  document.body.appendChild(box);
+  try {
+    const r = await api('photo', { id });
+    if (!document.body.contains(box)) return;
+    if (!r.ok) { box.textContent = r.error || 'เปิดรูปไม่ได้'; return; }
+    box.innerHTML = `<img src="${r.src}" alt="รูปเข้างานของ ${esc(r.name)}" style="max-width:100%;max-height:100%;border-radius:16px">`;
+  } catch (e) { box.textContent = '📶 โหลดรูปไม่ได้ ลองใหม่'; }
+}
+
+/** 🏮 ปิดร้านทั้งวัน (หยุดกะทันหัน) · ผู้จัดการขึ้นไป · วันนั้นไม่ต้องเข้างาน ไม่นับขาด */
+let holiReason = '';
+function holidayCard(r) {
+  if (r.locked || r.weekly) return '';
+  if (r.holiday) return `<div class="card" style="border-color:var(--night)"><h2 style="margin:0">🏮 ร้านหยุดวันนี้</h2>
+      <div class="muted">${esc(r.holiday)} · ไม่ต้องเข้างาน ไม่นับขาด</div>
+      <button class="btn quiet${armed === 'holiOff' ? ' confirm' : ''}" id="holiOff" style="margin:12px 0 0;min-height:64px;font-size:22px">${armed === 'holiOff' ? 'แตะอีกครั้ง ยืนยัน' : 'ยกเลิกวันหยุด (ร้านเปิดปกติ)'}</button></div>`;
+  return `<div class="more center">${moreBtn('holi', '🏮 ร้านหยุดกะทันหัน')}</div>${moreBox('holi', `<div class="card"><h2>🏮 ปิดร้านทั้งวัน</h2>
+      <div class="muted" style="font-size:16px">วันนั้นพนักงานกดเข้างานไม่ได้ · ไม่นับขาด · ใครเข้างานไปแล้วยังคิดตามจริง · การ์ดแจ้งเข้ากลุ่ม</div>
+      <div class="field"><label for="holiWhy">เหตุผล (ไม่บังคับ)</label><input id="holiWhy" value="${esc(holiReason)}" placeholder="เช่น ไฟดับ · น้ำท่วม · งานบุญ" maxlength="80"></div>
+      <button class="btn${armed === 'holiOn' ? ' confirm' : ''}" id="holiOn" style="margin:0;min-height:64px;font-size:22px">${armed === 'holiOn' ? 'แตะอีกครั้ง ยืนยันปิดร้าน' : 'ปิดร้าน' + (r.isToday ? 'วันนี้' : ' ' + esc(r.label))}</button></div>`)}`;
 }
 
 const lvReason = {};   // เหตุผลที่พิมพ์ค้างไว้ (กันหายตอนหน้าวาดใหม่หลังแตะครั้งแรก)
@@ -1252,6 +1385,26 @@ function bossPayHtml(r) {
       (r.lastClosed ? `<button class="btn quiet${armed === 'undoP' ? ' confirm' : ''}" id="pUndo" style="margin:0">${armed === 'undoP' ? 'แตะอีกครั้ง ล้างงวดจริง' : `ล้างงวด ${esc(r.lastClosed)}`}<small>ลบสลิปงวดล่าสุด ข้อมูลกลับมาแก้ได้</small></button>` : ''))}`;
 }
 
+/**
+ * ตารางหักแรงรายวัน (ใช้ทั้งตั้งค่าร้านและหน้าสร้างร้าน)
+ * rows = [{dow, day, v:[ลากิจล่วงหน้า, ลากิจกะทันหัน, ลาป่วยล่วงหน้า, ลาป่วยกะทันหัน, ขาด]}] เรียง จ→อา
+ */
+const DED_HEAD = ['ลากิจ<br>ล่วงหน้า', 'ลากิจ<br>กะทันหัน', 'ลาป่วย<br>ล่วงหน้า', 'ลาป่วย<br>กะทันหัน', 'ขาด'];
+/** ตารางมาตรฐาน (ตรงกับ DEFAULT_DED ใน Setup.gs) เรียง จ→อา */
+function dedStd() {
+  return [['จันทร์', 1, [0, 0, 0, 0, 0]], ['อังคาร', 2, [2, 3, 0, 0, 3]], ['พุธ', 3, [1, 2, 0, 0, 2]], ['พฤหัสบดี', 4, [1, 2, 0, 0, 2]],
+          ['ศุกร์', 5, [2, 3, 0, 0, 3]], ['เสาร์', 6, [2, 3, 0, 0, 3]], ['อาทิตย์', 0, [1, 2, 0, 0, 2]]].map(x => ({ dow: x[1], day: x[0], v: x[2] }));
+}
+function dedEd(px, rows) {
+  return `<div class="muted" style="font-size:15px;margin-bottom:6px">ใส่จำนวนแรงที่หัก (0 = ไม่หัก · ครึ่งแรงใส่ 0.5) · 1 แรง = ค่าแรง 1 วัน</div>
+    <div class="dedt"><div></div>${DED_HEAD.map(h => `<div class="h">${h}</div>`).join('')}
+    ${rows.map(r => `<div class="d">${esc(r.day.slice(0, 2))}</div>` + r.v.map((v, c) =>
+      `<input type="number" inputmode="decimal" min="0" max="5" step="0.5" data-ded="${px}:${r.dow}:${c}" value="${v}" aria-label="${esc(r.day)} ${DED_HEAD[c].replace('<br>', '')}">`).join('')).join('')}</div>`;
+}
+function readDed(px, rows) {
+  return rows.map(r => ({ dow: r.dow, v: r.v.map((v, c) => { const el = document.querySelector(`[data-ded="${px}:${r.dow}:${c}"]`); return el ? +el.value || 0 : v; }) }));
+}
+
 function bossSetHtml(r) {
   paySetInit('os', r, S.shopId);
   const emps = r.emps.map((e, i) => `<div class="item" style="flex-wrap:wrap"><div class="main"><div class="name">${esc(e.name)}
@@ -1275,9 +1428,11 @@ function bossSetHtml(r) {
       `<div class="card"><h2>🔑 รหัส 4 ตัวของร้าน</h2><div class="clock" style="font-size:40px">${esc(r.code || '—')}</div>
       <div class="row"><input id="newCode" inputmode="numeric" placeholder="รหัสใหม่ 4-8 หลัก" style="flex:1"><button class="small-btn" id="setCode">เปลี่ยน</button></div></div>` +
 
-      `<div class="card"><h2>⚙️ ตั้งค่า OT</h2><div class="list">` + r.items.map((x, i) => `<div class="item" style="flex-wrap:wrap">
+      (r.deduct ? `<div class="card"><h2>📅 หักแรงต่อวัน</h2>${dedEd('od', r.deduct)}<button class="small-btn" id="odSave" style="width:100%;margin-top:10px">บันทึกตารางหักแรง</button></div>` : '') +
+      `<div class="card"><h2>⚙️ ตั้งค่าอื่นๆ</h2><div class="list">` + r.items.map((x, i) => `<div class="item" style="flex-wrap:wrap">
       <div class="main" style="min-width:60%"><div class="name">${esc(x.key)}</div>${x.hint ? `<div class="sub">${esc(x.hint)}</div>` : ''}</div>
-      <div class="row" style="width:100%"><input id="set${i}" value="${esc(x.value)}" style="flex:1"><button class="small-btn" data-set="${i}">บันทึก</button></div></div>`).join('') + '</div></div>')}`;
+      ${x.yesno ? `<div class="seg" style="width:100%;margin:6px 0 0">${['ใช่', 'ไม่'].map(v => `<button data-yn="${i}:${v}" class="${(x.value || (x.key === 'ข้อความแบบการ์ด' || x.key === 'ถ่ายรูปตอนเข้างาน' ? 'ไม่' : 'ใช่'))   /* ช่องว่าง = ค่าเดิมของระบบ */ === v ? 'on' : ''}">${v}</button>`).join('')}</div>` :
+        `<div class="row" style="width:100%"><input id="set${i}" value="${esc(x.value)}" style="flex:1"><button class="small-btn" data-set="${i}">บันทึก</button></div>`}</div>`).join('') + '</div></div>')}`;
 }
 
 function wireBoss(app) {
@@ -1301,8 +1456,20 @@ function wireBoss(app) {
       const res = await act('unbindStaff', { name: b.dataset.unbind });
       if (res && res.ok) { bossOpen = ''; loadBoss(); }
     }));
+    const hw = document.getElementById('holiWhy');
+    if (hw) hw.oninput = () => { holiReason = hw.value; };
+    const holi = async on => {
+      const res = await act('holiday', { date: r.key, on, reason: on ? holiReason.trim() : '' });
+      if (res && res.ok) { holiReason = ''; moreOpen = ''; bossCache.today = null; loadBoss(); refresh(); }
+    };
+    const hOn = document.getElementById('holiOn'), hOff = document.getElementById('holiOff');
+    if (hOn) hOn.onclick = () => twoTap('holiOn', () => holi(true));
+    if (hOff) hOff.onclick = () => twoTap('holiOff', () => holi(false));
     const rc = document.getElementById('rcGo');
     if (rc) rc.onclick = () => twoTap('reclose', async () => { await doClose(val('rcTime')); loadBoss(); });
+    const pp = document.getElementById('phPurge');
+    if (pp) pp.onclick = () => twoTap('phPurge', async () => { const res = await act('purgePhotos', {}); if (res && res.ok) { moreOpen = ''; bossCache.today = null; loadBoss(); } });
+    app.querySelectorAll('[data-ph]').forEach(b => b.onclick = () => showPhoto(b.dataset.ph));
   }
   if (bossTab === 'leaves') {
     app.querySelectorAll('[data-ok]').forEach(b => b.onclick = async () => { await act('decide', { id: b.dataset.ok, decision: 'อนุมัติ' }); loadBoss(); });
@@ -1352,6 +1519,13 @@ function wireBoss(app) {
     if (pu) pu.onclick = () => twoTap('undoP', async () => { await act('undoPeriod'); bossCache.pay = null; loadBoss(); });
   }
   if (bossTab === 'set') {
+    const ods = document.getElementById('odSave');
+    if (ods) ods.onclick = async () => { const res = await act('setDeduct', { rows: readDed('od', r.deduct) }); if (res && res.ok) { r.deduct = res.deduct; renderBoss(); } };
+    app.querySelectorAll('[data-yn]').forEach(b => b.onclick = async () => {
+      const [i, v] = b.dataset.yn.split(':');
+      const res = await act('setSetting', { key: r.items[+i].key, value: v });
+      if (res && res.ok) { r.items[+i].value = v; renderBoss(); refresh(); }
+    });
     app.querySelectorAll('[data-set]').forEach(b => b.onclick = async () => {
       const i = +b.dataset.set;
       const res = await act('setSetting', { key: r.items[i].key, value: val('set' + i) });
@@ -1618,7 +1792,7 @@ function renderAdmin() {
                    x.bill === 'due' ? `<span class="pill warn">${x.daysLeft ? 'เหลือ ' + x.daysLeft + ' วัน' : 'ครบวันนี้'}</span>` :
                    !x.group ? '<span class="pill">ยังไม่ผูกกลุ่ม</span>' : '<span class="pill ok">ใช้งาน</span>';
       return `<button class="item" data-shop="${esc(x.id)}" style="width:100%;text-align:left"><div class="main"><div class="name">${esc(x.name)}</div>
-        <div class="sub">${esc(x.id)} · ${x.staff} คน${x.until ? ' · ครบกำหนด ' + dmy(x.until) : ''}</div></div>${pill}</button>`;
+        <div class="sub">${esc(x.id)} · ${x.staff} คน${x.until ? ' · ครบกำหนด ' + dmy(x.until) : ''}${x.by ? ' · สร้างโดย ' + esc(x.by) : ''}</div></div>${pill}</button>`;
     }).join('');
     const sy = admData.sys;
     const sysBox = !sy ? loadingHtml() : !sy.ok ? `<div class="note bad">${esc(sy.error || sy.text || '')}</div>` : `
@@ -1631,7 +1805,8 @@ function renderAdmin() {
     body = `<div class="stat3"><div><b>${r.shops.length}</b><span>ร้าน</span></div><div><b>${r.staffTotal}</b><span>พนักงาน</span></div>
         <div><b style="color:${r.owe ? 'var(--bad)' : 'var(--warn)'}">${r.owe || r.due || 0}</b><span>${r.owe ? 'ค้างชำระ' : 'ใกล้ครบกำหนด'}</span></div></div>
       <button class="btn" id="aNew">+ สร้างร้านใหม่<small>4 ขั้น ไม่ต้องเขียนโค้ด</small></button>
-      <div class="more center">${moreBtn('sys', 'ตั้งค่าการเก็บเงิน')}</div>${moreBox('sys', sysBox)}<div class="gap"></div>
+      ${r.creator ? `<div class="more center">${moreBtn('sys', 'ตั้งค่าการเก็บเงิน')} ${moreBtn('adm', 'แอดมิน')}</div>${moreBox('sys', sysBox)}${moreBox('adm', admBox())}` :
+        '<div class="note" style="margin:0 0 12px">คุณเป็นแอดมิน · เห็นเฉพาะร้านที่คุณสร้าง</div>'}<div class="gap"></div>
       <div class="card"><h2>ร้านทั้งหมด</h2>${items ? `<div class="list">${items}</div>` :
         `<div class="center"><div class="hm" style="line-height:0">${nongSvg('happy', 100)}</div><div class="muted">ยังไม่มีร้านเลย มาสร้างร้านแรกกัน~</div></div>`}</div>`;
   }
@@ -1646,6 +1821,34 @@ function renderAdmin() {
     if (res && res.ok) { admData.sys = res; admData.home = null; loadAdmin(); }
   };
   app.querySelectorAll('[data-shop]').forEach(b => b.onclick = () => { adm = { view: 'shop', shop: b.dataset.shop }; admData.shop = null; renderAdmin(); loadAdmin(); });
+  if (moreOpen === 'adm' && !admData.admins) api('adminAdmins').then(x => { admData.admins = x; if (adm.view === 'home') renderAdmin(); }).catch(() => {});
+  const aa = document.getElementById('aaGo');
+  if (aa) aa.onclick = async () => {
+    const v = id => document.getElementById(id).value.trim();
+    const res = await act('adminAddAdmin', { uid: v('aaUid'), name: v('aaName') });
+    if (res && res.ok) { admData.admins = res; renderAdmin(); }
+  };
+  app.querySelectorAll('[data-rmadm]').forEach(b => b.onclick = () => twoTap('rmadm' + b.dataset.rmadm, async () => {
+    const res = await act('adminRemoveAdmin', { uid: b.dataset.rmadm });
+    if (res && res.ok) { admData.admins = res; renderAdmin(); }
+  }));
+}
+
+/** ผู้สร้างระบบเท่านั้น: ตั้ง/ถอดแอดมิน (LINE uid + ชื่อ) · แอดมินเห็นเฉพาะร้านที่ตัวเองสร้าง */
+function admBox() {
+  const a = admData.admins;
+  if (!a) return loadingHtml();
+  if (!a.ok) return `<div class="note bad">${esc(a.error || a.text || '')}</div>`;
+  const list = (a.admins || []).map(x => `<div class="item"><div class="main"><div class="name">${esc(x.name)}</div>
+      <div class="sub num" style="font-size:13px">${esc(x.uid)}</div></div>
+      <button class="small-btn red" data-rmadm="${esc(x.uid)}">${armed === 'rmadm' + x.uid ? 'แตะอีกครั้ง' : 'ถอด'}</button></div>`).join('');
+  return `<div class="card"><h2>🛡️ แอดมิน</h2>
+    <div class="muted" style="font-size:15px;margin-bottom:8px">แอดมินสร้างร้านได้ · เห็นและจัดการเฉพาะร้านที่ตัวเองสร้าง · ตั้งแอดมินคนอื่นไม่ได้<br>
+      userId: ให้คนนั้นพิมพ์ <b>ไอดี</b> หาบอท แล้วส่งค่าที่ขึ้นต้น U มาให้</div>
+    ${list ? `<div class="list">${list}</div>` : '<div class="muted">ยังไม่มีแอดมิน</div>'}
+    <div class="field"><label for="aaName">ชื่อ</label><input id="aaName" autocomplete="off" placeholder="เช่น พี่โอ๋"></div>
+    <div class="field"><label for="aaUid">LINE userId</label><input id="aaUid" autocomplete="off" placeholder="U…" style="font-family:monospace"></div>
+    <button class="small-btn" id="aaGo" style="width:100%">+ ตั้งเป็นแอดมิน</button></div>`;
 }
 
 function renderWizard(app) {
@@ -1682,6 +1885,9 @@ function renderWizard(app) {
         ${tg('fine', 'หักสาย', fineTxt(), 'fine', num('nFine', 'หักนาทีละ', 'fineBaht', 'บาท') + num('nGrace', 'สายไม่เกินกี่นาทีไม่หัก', 'graceMin', 'นาที') + num('nPass', 'ค่าขอเข้าสาย ต่อครั้ง', 'passFee', 'บาท'))}
       </div>
       <div class="card"><h2>💰 รอบจ่ายเงิน</h2>${cycleBox('wc', wz.cyc, wz.tune === 'cyc')}</div>
+      <div class="card"><h2>📅 หักแรงต่อวัน</h2><div class="muted" style="font-size:16px">ลา/ขาดแต่ละวัน หักกี่แรง · ${wz.ded ? 'ตั้งเองแล้ว' : 'ใช้ตารางมาตรฐาน'}</div>
+        <div class="more center">${moreBtn('wded', wz.ded ? 'แก้ตาราง' : 'ตั้งเอง')}</div>${moreBox('wded', dedEd('wd', wz.ded || dedStd()) +
+        `<div class="row" style="margin-top:8px"><button class="small-btn" id="wdSave" style="flex:1">ใช้ตารางนี้</button>${wz.ded ? '<button class="small-btn ghost" id="wdStd">กลับไปใช้มาตรฐาน</button>' : ''}</div>`)}</div>
       <div class="card" style="padding:6px 18px">${shiftEd('ws', wz.sh)}<div class="err" id="wsErr">${esc(shiftEdErr(wz.sh))}</div></div>
       <div class="muted center">เปลี่ยนตัวเลขทีหลังได้ในหน้าตั้งค่าร้าน</div>${nav(!shiftEdErr(wz.sh))}`;
   } else if (st === 3) {
@@ -1748,6 +1954,8 @@ function renderWizard(app) {
   ['ot', 'food', 'fine'].forEach(k => { const el = $('w_' + k); if (el) el.onchange = () => { wz[k] = el.checked; if (!el.checked && wz.tune === k) wz.tune = ''; saveWz(); renderWizard(app); }; });
   app.querySelectorAll('[data-tune]').forEach(b => b.onclick = () => { wz.tune = wz.tune === b.dataset.tune ? '' : b.dataset.tune; saveWz(); renderWizard(app); });
   if (st === 2) {
+    if ($('wdSave')) $('wdSave').onclick = () => { wz.ded = readDed('wd', wz.ded || dedStd()).map((x, i) => Object.assign({ day: (wz.ded || dedStd())[i].day }, x)); moreOpen = ''; saveWz(); renderWizard(app); };
+    if ($('wdStd')) $('wdStd').onclick = () => { wz.ded = null; moreOpen = ''; saveWz(); renderWizard(app); };
     wireCycle('wc', wz.cyc, soft => { saveWz(); if (!soft) renderWizard(app); }, () => { wz.tune = wz.tune === 'cyc' ? '' : 'cyc'; saveWz(); renderWizard(app); });
     wireShiftEd('ws', wz.sh, soft => {
       saveWz();
@@ -1811,7 +2019,8 @@ function renderWizard(app) {
       otBaht: wz.otBaht, otFirst: wz.otFirst, otStep: wz.otStep, foodBaht: wz.foodBaht,
       fineBaht: wz.fineBaht, graceMin: wz.graceMin, passFee: wz.passFee,
       staff: sc.list.map(x => Object.assign({}, x, { shift: wz.sh.on ? (x.shift || wz.sh.list[0].name) : '' })), until: wz.until || 'none',
-      cycle: wz.cyc.kind, cutDay: wz.cyc.cut, cutDow: wz.cyc.dow, shifts: { on: wz.sh.on, list: wz.sh.on ? wz.sh.list : [] } });
+      cycle: wz.cyc.kind, cutDay: wz.cyc.cut, cutDow: wz.cyc.dow, shifts: { on: wz.sh.on, list: wz.sh.on ? wz.sh.list : [] },
+      deduct: wz.ded ? wz.ded.map(x => ({ dow: x.dow, v: x.v })) : null });
     if (res && res.ok) {
       adm = { view: 'done', res: Object.assign({ owner: wz.owner.trim() }, res) }; wz = WZ_NEW();
       try { localStorage.removeItem(WZ_KEY); } catch (e) {}
@@ -1875,7 +2084,7 @@ function renderAdmShop(app) {
       ${sh.group ? '' : `<div class="note warn">ยังไม่ผูกกลุ่ม: เชิญบอทเข้ากลุ่มร้าน แล้วพิมพ์ <b>ผูกร้าน ${esc(sh.id)} ${esc(r.code)}</b></div>`}</div>
     ${r.gps ? '' : `<div class="card"><h2>ตำแหน่งร้าน</h2><div class="note bad" style="margin:0 0 10px">ยังไม่ได้ตั้ง — พนักงานยังเข้างานไม่ได้</div>${locBox('al', null, admLocBusy)}</div>`}
     ${bill.state && bill.state !== 'ok' ? `<div class="card"><div class="note ${bill.state === 'due' ? 'warn' : 'bad'}" style="margin:0">${bill.state === 'locked' ? 'พักระบบอยู่ (ค้างชำระ)' : bill.state === 'overdue' ? 'เลยกำหนดชำระแล้ว · พักระบบวันที่ ' + dmy(bill.lockOn) : 'ใกล้ครบกำหนด · เหลือ ' + bill.daysLeft + ' วัน'}</div>
-      <button class="btn" id="sRenew2" style="margin:12px 0 0">รับเงินแล้ว ต่อ 1 เดือน</button></div>` : ''}
+      ${r.creator ? '<button class="btn" id="sRenew2" style="margin:12px 0 0">รับเงินแล้ว ต่อ 1 เดือน</button>' : ''}</div>` : ''}
     <div class="card"><h2>เพิ่มพนักงาน</h2>
       <div class="srow" style="margin:0"><div class="r"><input class="n" id="nName" placeholder="ชื่อเล่น" maxlength="20"><input class="w" id="nWage" type="number" inputmode="numeric" placeholder="บาท/วัน"></div>
         <div class="r"><input class="d" id="nDept" list="deptList" placeholder="ตำแหน่ง (เลือกหรือพิมพ์ใหม่)" maxlength="20"><label class="chk"><input type="checkbox" id="nMgr">ผู้จัดการ</label></div>
@@ -1883,11 +2092,11 @@ function renderAdmShop(app) {
       <button class="btn quiet" id="nAdd" style="margin:10px 0 0">＋ เพิ่มพนักงาน</button>
       <datalist id="deptList">${(r.depts || []).concat(['หน้าร้าน', 'ครัว', 'แคชเชียร์']).filter((d, i, a) => a.indexOf(d) === i).map(d => `<option value="${esc(d)}">`).join('')}</datalist></div>
     <div class="card"><h2>พนักงาน ${r.staff.filter(e => !e.left).length} คน</h2><div class="list">${emps || '<div class="muted">ยังไม่มีพนักงาน</div>'}</div></div>
-    <div class="more center">${moreBtn('as', 'ค่าบริการ · รอบจ่าย · กะ · ปิดร้าน')}</div>
-    ${moreBox('as', paySetHtml('ap', r) + `<div class="card"><h2>ค่าบริการรายเดือน</h2>
+    <div class="more center">${moreBtn('as', (r.creator ? 'ค่าบริการ · ' : '') + 'รอบจ่าย · กะ · ปิดร้าน')}</div>
+    ${moreBox('as', paySetHtml('ap', r) + (r.creator ? `<div class="card"><h2>ค่าบริการรายเดือน</h2>
       <div class="muted">${sh.until ? 'ครบกำหนด ' + dmy(sh.until) : 'ไม่มีวันหมดอายุ'}</div>
       <button class="btn" id="sRenew" style="margin:10px 0 12px">รับเงินแล้ว ต่อ 1 เดือน<small>${sh.until ? 'ยังไม่ครบ = ต่อจากวันเดิม · เลยแล้ว = นับจากวันนี้' : 'เริ่มนับจากวันนี้'}</small></button>
-      <div class="row"><span style="flex:1;font-weight:700">หรือตั้งวันเอง</span><input type="date" id="sUntil" value="${esc(sh.until)}"><button class="small-btn" id="sUntilGo">บันทึก</button></div></div>
+      <div class="row"><span style="flex:1;font-weight:700">หรือตั้งวันเอง</span><input type="date" id="sUntil" value="${esc(sh.until)}"><button class="small-btn" id="sUntilGo">บันทึก</button></div></div>` : '') + `
       ${r.gps ? `<div class="card"><h2>ตำแหน่งร้าน</h2>${locBox('al', r.gps, admLocBusy)}</div>` : ''}
       <div class="card"><h2>การใช้งาน</h2>
       <button class="btn quiet${armed === 'sClose' ? ' confirm' : ''}" id="sClose" style="margin:0">${armed === 'sClose' ? 'แตะอีกครั้ง ยืนยัน' : closed ? 'เปิดใช้งานร้านอีกครั้ง' : 'ปิดการใช้งานร้าน'}<small>${closed ? 'พนักงานกลับมาใช้ได้ทันที' : 'พนักงานร้านนี้จะใช้ไม่ได้ (ข้อมูลยังอยู่)'}</small></button></div>`)}
