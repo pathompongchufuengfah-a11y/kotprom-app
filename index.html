@@ -690,6 +690,8 @@ function render() {
   if (!S) return;
   document.getElementById('title').textContent = (S.shop || '') + ' · โคตรพร้อม';
   if (!S.registered) { document.getElementById('who').textContent = 'ยินดีต้อนรับ'; return renderRegister(); }
+  if (joinMode && S.canJoin) return renderRegister();      // ผู้สร้าง/แอดมินลงชื่อเป็นพนักงานของร้านนี้
+  joinMode = false;
   document.getElementById('who').textContent = 'สวัสดี ' + S.me.name;
   const dt = document.getElementById('date');
   dt.hidden = false;
@@ -714,7 +716,7 @@ function render() {
 }
 
 // ---------- ลงทะเบียน: เลือกชื่อที่ผู้จัดการ/แอดมินเพิ่มไว้ + รหัส 4 ตัว (ไม่ต้องสมัคร) ----------
-let regMode = '', regPick = '';
+let regMode = '', regPick = '', joinMode = false;
 function renderRegister() {
   document.getElementById('tabs').hidden = true;
   document.getElementById('date').hidden = true;
@@ -749,7 +751,10 @@ function renderRegister() {
       ${regPick ? codeBox : ''}
       ${all.length && !free.length ? '<div class="note warn">ทุกชื่อผูกเครื่องแล้ว — เปลี่ยนเครื่อง? ให้ผู้จัดการกด "ปลดเครื่อง" ให้ก่อน</div>' : ''}</div>
     <button class="btn" id="rgGo" ${regPick ? '' : 'disabled'}>${regPick ? 'ใช่ ฉันคือ ' + esc(regPick) : 'แตะชื่อของคุณก่อน'}</button>
-    <div class="center"><button class="small-btn ghost" id="rgNew" style="margin-top:8px">ไม่เจอชื่อ? ลงทะเบียนใหม่</button></div>`;
+    <div class="center"><button class="small-btn ghost" id="rgNew" style="margin-top:8px">ไม่เจอชื่อ? ลงทะเบียนใหม่</button></div>
+    ${joinMode ? '<div class="gap"></div><button class="btn quiet" id="rgCancel">กลับหน้าผู้จัดการ</button>' : ''}`;
+  const rc = document.getElementById('rgCancel');
+  if (rc) rc.onclick = () => { joinMode = false; regPick = ''; render(); };
   app.querySelectorAll('[data-n]').forEach(b => b.onclick = () => { regPick = b.dataset.n; render(); const c = document.getElementById('rgCode'); if (c) c.focus(); });
   document.getElementById('rgNew').onclick = () => { regMode = 'new'; render(); };
   document.getElementById('rgGo').onclick = () => {
@@ -1284,6 +1289,9 @@ function bossTodayHtml(r) {
       ${r.locked ? '<span class="pill bad">งวดปิดแล้ว แก้ไม่ได้</span>' : ''}</div>${moreBtn('bt')}</div>
       ${moreBox('bt', extra)}</div>
     ${holidayCard(r)}
+    ${S.canJoin ? `<div class="card"><div class="row" style="flex-wrap:nowrap"><div style="flex:1;min-width:0"><b>👤 คุณทำงานในร้านนี้ด้วย?</b>
+      <div class="muted" style="font-size:15px">ลงชื่อเป็นพนักงาน แล้วจะมีแท็บลงเวลาของตัวเอง</div></div>
+      <button class="small-btn" id="joinGo">ลงชื่อ</button></div></div>` : ''}
     <div class="card">
       ${items ? `<div class="list">${items}</div><div class="total"><span>OT คืนนี้</span><span class="num">${baht(r.totalOt)} บาท</span></div>` : '<div class="muted">ไม่มีใครต้องทำงานวันนี้</div>'}</div>`;
 }
@@ -1527,6 +1535,8 @@ function wireBoss(app) {
     if (hOff) hOff.onclick = () => twoTap('holiOff', () => holi(false));
     const rc = document.getElementById('rcGo');
     if (rc) rc.onclick = () => twoTap('reclose', async () => { await doClose(val('rcTime')); loadBoss(); });
+    const jg = document.getElementById('joinGo');
+    if (jg) jg.onclick = () => { joinMode = true; regMode = ''; regPick = ''; render(); window.scrollTo(0, 0); };
     const pp = document.getElementById('phPurge');
     if (pp) pp.onclick = () => twoTap('phPurge', async () => { const res = await act('purgePhotos', {}); if (res && res.ok) { moreOpen = ''; bossCache.today = null; loadBoss(); } });
     app.querySelectorAll('[data-ph]').forEach(b => b.onclick = () => showPhoto(b.dataset.ph));
