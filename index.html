@@ -62,7 +62,17 @@
   .icon { font-size: 52px; line-height: 1.1; }
 
   /* ปุ่ม */
-  button { font: inherit; border: 0; cursor: pointer; touch-action: manipulation; color: inherit; background: none; }
+  button { font: inherit; border: 0; cursor: pointer; touch-action: manipulation; color: inherit; background: none; -webkit-tap-highlight-color: transparent; }
+  /* แตะแล้วต้องเห็นว่ากดลงไป: ทุกปุ่มเข้มขึ้น · ปุ่มเล็กยุบลงเหมือนปุ่มใหญ่ */
+  button:not([disabled]):active { filter: brightness(.82); }
+  .small-btn:not([disabled]):active { transform: translateY(2px); box-shadow: 0 1px 0 var(--brand-edge); }
+  .small-btn.ghost:not([disabled]):active, .small-btn.red:not([disabled]):active { box-shadow: 0 1px 0 #FFD0A8; }
+  .btn.quiet:active { box-shadow: 0 1px 0 #FFD0A8; }
+  /* ปุ่มพื้นขาว: กดแล้วเป็นส้มอ่อน (ไม่ใช่เทา) */
+  .btn.quiet:not(.confirm):active, .small-btn.ghost:not([disabled]):active, .small-btn.red:not([disabled]):active,
+  .seg button:not(.on):active, .dp:not(.on):active, nav.tabs button:active, .more-btn:active { filter: none; background: #FFE3CC; }
+  .dp { min-height: 44px; padding: 6px 16px; border-radius: 999px; background: #fff; border: 2px solid var(--line); font-size: 17px; font-weight: 600; }
+  .dp.on { background: var(--brand); border-color: var(--brand); color: #fff; }
   .btn { display: block; width: 100%; min-height: 88px; padding: 14px 18px; border-radius: var(--r); margin-bottom: 6px;
     background: var(--brand); color: #fff; font-family: var(--display); font-size: 30px; font-weight: 700; line-height: 1.2;
     box-shadow: 0 6px 0 var(--brand-edge); transition: transform .06s, box-shadow .06s; }
@@ -717,6 +727,7 @@ function render() {
 
 // ---------- ลงทะเบียน: เลือกชื่อที่ผู้จัดการ/แอดมินเพิ่มไว้ + รหัส 4 ตัว (ไม่ต้องสมัคร) ----------
 let regMode = '', regPick = '', joinMode = false;
+document.addEventListener('touchstart', () => {}, { passive: true });   // iOS แสดงอาการกดปุ่ม (:active) เฉพาะหน้าที่ฟัง touchstart
 function renderRegister() {
   document.getElementById('tabs').hidden = true;
   document.getElementById('date').hidden = true;
@@ -752,7 +763,10 @@ function renderRegister() {
       ${all.length && !free.length ? '<div class="note warn">ทุกชื่อผูกเครื่องแล้ว — เปลี่ยนเครื่อง? ให้ผู้จัดการกด "ปลดเครื่อง" ให้ก่อน</div>' : ''}</div>
     <button class="btn" id="rgGo" ${regPick ? '' : 'disabled'}>${regPick ? 'ใช่ ฉันคือ ' + esc(regPick) : 'แตะชื่อของคุณก่อน'}</button>
     <div class="center"><button class="small-btn ghost" id="rgNew" style="margin-top:8px">ไม่เจอชื่อ? ลงทะเบียนใหม่</button></div>
-    ${joinMode ? '<div class="gap"></div><button class="btn quiet" id="rgCancel">กลับหน้าผู้จัดการ</button>' : ''}`;
+    ${joinMode ? '<div class="gap"></div><button class="btn quiet" id="rgCancel">กลับหน้าผู้จัดการ</button>' : ''}
+    ${S.uid ? `<div class="muted center" style="font-size:13px;margin-top:14px;word-break:break-all">ไอดีของคุณ: ${esc(S.uid)} <button class="small-btn ghost" id="rgUid" style="padding:2px 10px;min-height:0">ก๊อป</button></div>` : ''}`;
+  const ru = document.getElementById('rgUid');
+  if (ru) ru.onclick = () => copyText(S.uid);
   const rc = document.getElementById('rgCancel');
   if (rc) rc.onclick = () => { joinMode = false; regPick = ''; render(); };
   app.querySelectorAll('[data-n]').forEach(b => b.onclick = () => { regPick = b.dataset.n; render(); const c = document.getElementById('rgCode'); if (c) c.focus(); });
@@ -1625,6 +1639,22 @@ function wireBoss(app) {
   }
 }
 
+/** ชิปเลือกตำแหน่ง (แทน datalist ที่ไอโฟนในไลน์ไม่ขึ้นตัวเลือก) · แตะ = เติมลงช่อง id · พิมพ์เองในช่องได้ */
+function deptPick(id, cur, list) {
+  return `<div class="chips" style="margin:6px 0 2px">${list.map(d => `<button type="button" class="dp${d === cur ? ' on' : ''}" data-dp="${esc(id)}" data-v="${esc(d)}">${esc(d)}</button>`).join('')}</div>`;
+}
+function wireDeptPick(root) {
+  root.querySelectorAll('[data-dp]').forEach(b => b.onclick = () => {
+    const inp = document.getElementById(b.dataset.dp);
+    if (inp) inp.value = b.dataset.v;
+    b.parentNode.querySelectorAll('.dp').forEach(x => x.classList.toggle('on', x === b));
+  });
+  root.querySelectorAll('[data-dp]').forEach(b => {             // พิมพ์เอง → ชิปที่ตรงชื่อติดสีตาม
+    const inp = document.getElementById(b.dataset.dp);
+    if (inp && !inp.dataset.dpw) { inp.dataset.dpw = 1; inp.addEventListener('input', () => root.querySelectorAll(`[data-dp="${b.dataset.dp}"]`).forEach(x => x.classList.toggle('on', x.dataset.v === inp.value.trim()))); }
+  });
+}
+
 // ---------- ตัวช่วยเล็กๆ ----------
 async function copyText(t) {
   try { await navigator.clipboard.writeText(t); toast('ก๊อปแล้วน้า~ ไปวางในกลุ่มร้านได้เลย', 'ok', 3000); }
@@ -2131,6 +2161,7 @@ function renderAdmShop(app) {
   if (!r.ok) { app.innerHTML = `<div class="card"><div class="note bad">${esc(r.error || r.text)}</div></div><button class="btn quiet" id="sBack">กลับ</button>`; document.getElementById('sBack').onclick = () => { adm = { view: 'home' }; renderAdmin(); loadAdmin(); }; return; }
   const sh = r.shop, closed = sh.status === 'ปิด', bill = r.billing || {};
   paySetInit('ap', r, sh.id);
+  const depts = ['หน้าร้าน', 'ครัว', 'แคชเชียร์'].concat(r.depts || []).filter((x, i, a) => x && a.indexOf(x) === i);
   const emps = r.staff.map((e, i) => {
     const open = admOpen === e.name;
     const pill = e.left ? '<span class="pill">ออกแล้ว</span>' : e.bound ? '<span class="pill ok">ผูกเครื่องแล้ว</span>' : '<span class="pill warn">ยังไม่ผูก</span>';
@@ -2139,7 +2170,8 @@ function renderAdmShop(app) {
       <button class="small-btn ghost" data-eo="${esc(e.name)}">${open ? 'ปิด' : 'แก้'}</button>
       ${open ? `<div class="mbox" style="width:100%">
         <div class="row mrow"><span class="mlabel">ค่าแรง/วัน</span><input type="number" id="eW${i}" value="${e.wage}" style="width:110px"><button class="small-btn" data-ew="${i}">บันทึก</button></div>
-        <div class="row mrow"><span class="mlabel">ตำแหน่ง</span><input id="eD${i}" value="${esc(e.dept)}" list="deptList" style="width:130px"><button class="small-btn" data-ed="${i}">บันทึก</button></div>
+        <div class="row mrow"><span class="mlabel">ตำแหน่ง</span><input id="eD${i}" value="${esc(e.dept)}" style="width:130px" maxlength="20"><button class="small-btn" data-ed="${i}">บันทึก</button></div>
+        ${deptPick('eD' + i, e.dept, depts)}
         ${r.shiftOn && String(e.role).indexOf('เจ้าของ') < 0 ? `<div class="row mrow"><span class="mlabel">กะประจำ</span><select id="eS${i}" style="width:130px">${r.shifts.map(x => `<option ${x.name === e.shift ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select><button class="small-btn" data-es="${i}">บันทึก</button></div>` : ''}
         ${String(e.role).indexOf('เจ้าของ') >= 0 ? '' : `<div class="row mrow"><span class="mlabel">สิทธิ์ผู้จัดการ</span><button class="small-btn ${e.role === 'ผู้จัดการ' ? 'ghost' : ''}" data-er="${i}">${e.role === 'ผู้จัดการ' ? 'ถอดผู้จัดการ' : 'ตั้งเป็นผู้จัดการ'}</button></div>`}
         <div class="more">${moreBtn('ae', 'เพิ่มเติม')}</div>
@@ -2159,10 +2191,11 @@ function renderAdmShop(app) {
       ${r.creator ? '<button class="btn" id="sRenew2" style="margin:12px 0 0">รับเงินแล้ว ต่อ 1 เดือน</button>' : ''}</div>` : ''}
     <div class="card"><h2>เพิ่มพนักงาน</h2>
       <div class="srow" style="margin:0"><div class="r"><input class="n" id="nName" placeholder="ชื่อเล่น" maxlength="20"><input class="w" id="nWage" type="number" inputmode="numeric" placeholder="บาท/วัน"></div>
-        <div class="r"><input class="d" id="nDept" list="deptList" placeholder="ตำแหน่ง (เลือกหรือพิมพ์ใหม่)" maxlength="20"><label class="chk"><input type="checkbox" id="nMgr">ผู้จัดการ</label></div>
+        <div class="r" style="flex-wrap:wrap">${deptPick('nDept', 'หน้าร้าน', depts)}</div>
+        <div class="r"><input class="d" id="nDept" value="หน้าร้าน" placeholder="หรือพิมพ์ตำแหน่งใหม่" maxlength="20"><label class="chk"><input type="checkbox" id="nMgr">ผู้จัดการ</label></div>
         ${r.shiftOn ? `<div class="r"><span class="muted" style="font-size:15px;flex:none">กะประจำ</span><select class="d" id="nShift">${r.shifts.map(x => `<option>${esc(x.name)}</option>`).join('')}</select></div>` : ''}</div>
       <button class="btn quiet" id="nAdd" style="margin:10px 0 0">＋ เพิ่มพนักงาน</button>
-      <datalist id="deptList">${(r.depts || []).concat(['หน้าร้าน', 'ครัว', 'แคชเชียร์']).filter((d, i, a) => a.indexOf(d) === i).map(d => `<option value="${esc(d)}">`).join('')}</datalist></div>
+      </div>
     <div class="card"><h2>พนักงาน ${r.staff.filter(e => !e.left).length} คน</h2><div class="list">${emps || '<div class="muted">ยังไม่มีพนักงาน</div>'}</div></div>
     <div class="more center">${moreBtn('as', (r.creator ? 'ค่าบริการ · ' : '') + 'รอบจ่าย · กะ · ปิดร้าน')}</div>
     ${moreBox('as', paySetHtml('ap', r) + (r.creator ? `<div class="card"><h2>ค่าบริการรายเดือน</h2>
@@ -2181,6 +2214,7 @@ function renderAdmShop(app) {
   const edit = async (body, keepOpen) => { const res = await act('adminStaffEdit', Object.assign({ shop: sh.id }, body)); if (res && res.ok) { if (!keepOpen) admOpen = ''; loadAdmin(); } };
   const cp = $('sCopy'); if (cp) cp.onclick = () => copyText(r.link);
   $('sBack').onclick = () => { adm = { view: 'home' }; admData.home = null; renderAdmin(); loadAdmin(); };
+  wireDeptPick(app);
   $('nAdd').onclick = () => {
     const name = $('nName').value.trim(), wage = $('nWage').value;
     if (!name || /\s/.test(name)) return toast('ใส่ชื่อเล่นคำเดียวก่อนนะ', 'bad');
