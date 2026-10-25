@@ -1069,7 +1069,7 @@ function calCell(c) {
   let cls = '', tag = '';
   if (st.some(x => x.status === 'อนุมัติ')) cls = 'appr'; else if (st.length) cls = 'pend'; else if (rej) cls = 'rej';
   const isPass = leaveType === 'ขอเข้าสาย';
-  const units = leaveType === 'ลาป่วย' ? c.sick : c.kij;
+  const units = leaveType === 'พักร้อน' ? 0 : leaveType === 'ลาป่วย' ? c.sick : c.kij;
   // ลา: ย้อนหลังได้ (ฉุกเฉิน) แต่ไม่ใช่วันที่เข้างานแล้ว
   // ขอเข้าสาย: ย้อนหลังได้ไม่เกิน "ลาย้อนหลังได้" วัน เฉพาะวันที่มาทำงาน (ระบบคิดสายใหม่ให้) · วันนี้ได้ทั้งก่อนและหลังเข้างาน
   const back = (S.leaveCfg || {}).back || 0;
@@ -1100,14 +1100,15 @@ function renderLeave() {
   if (picked.length) {
     let units = 0;
     const lines = picked.map(c => {
-      const u = leaveType === 'ลาป่วย' ? c.sick : c.kij;
+      const u = leaveType === 'พักร้อน' ? 0 : leaveType === 'ลาป่วย' ? c.sick : c.kij;
       units += u;
       const d = `${DOW[c.dow]}. ${+c.k.slice(8)}/${+c.k.slice(5, 7)}`;
       if (isPass) return `<div class="item"><div class="main">${d}${c.ahead < 0 ? ' <span class="pill warn">ย้อนหลัง</span>' : ''}</div><div class="amt">${baht(lc.fee)} บ.</div></div>`;
       return `<div class="item"><div class="main">${d}${c.ahead < 0 ? ' <span class="pill warn">ย้อนหลัง</span>' : c.adv ? '' : ' <span class="pill warn">กะทันหัน</span>'}</div>
-        <div class="amt">${u ? `หัก ${u} แรง` : 'ไม่หัก'}</div></div>`;
+        <div class="amt">${leaveType === 'พักร้อน' ? 'ไม่ได้ค่าแรง' : u ? `หัก ${u} แรง` : 'ไม่หัก'}</div></div>`;
     }).join('');
     const total = isPass ? `รวมค่าธรรมเนียม ${baht(lc.fee * picked.length)} บาท`
+                         : leaveType === 'พักร้อน' ? `พักร้อน ${picked.length} วัน · ไม่ได้ค่าแรง ค่าอาหาร · ไม่หักแรง`
                          : units ? `รวมหัก ${units} แรง ≈ ${baht(units * wage)} บาท` : 'ไม่หักแรง';
     sum = `<div class="card"><h2>เลือก ${picked.length} วัน</h2><div class="list">${lines}</div>
       <div class="total"><span>${total}</span></div>
@@ -1124,9 +1125,10 @@ function renderLeave() {
   }).join('');
   const backTxt = lc.back ? ` · ฉุกเฉินลาย้อนหลังได้ ${lc.back} วัน` : '';
   const hint = isPass ? `ค่าธรรมเนียม ${baht(lc.fee)} บาท/วัน · ลืมขอ? ขอย้อนหลังได้ ${lc.back || 0} วัน (วันที่มาทำงาน ระบบคิดสายใหม่ให้)` :
+               leaveType === 'พักร้อน' ? 'พักร้อน = ไม่ได้ค่าแรง ไม่ได้ค่าอาหาร ไม่หักแรง · แตะเลือกได้หลายวัน (ครั้งละไม่เกิน 14 วัน)' + backTxt :
                (leaveType === 'ลาป่วย' && !lc.sickDeduct ? 'ลาป่วยไม่หักแรง' : 'ตัวเลขใต้วัน = แรงที่หัก (อังคาร ศุกร์ เสาร์ หักหนักกว่า)') + backTxt;
   app.innerHTML = `
-    <div class="seg">${[['ลากิจ', 'ลากิจ'], ['ลาป่วย', 'ลาป่วย'], ['ขอเข้าสาย', 'เข้าสาย']].map(x =>
+    <div class="seg">${[['ลากิจ', 'ลากิจ'], ['ลาป่วย', 'ลาป่วย'], ['พักร้อน', 'พักร้อน'], ['ขอเข้าสาย', 'เข้าสาย']].map(x =>
       `<button data-t="${x[0]}" class="${leaveType === x[0] ? 'on' : ''}">${x[1]}</button>`).join('')}</div>
     <div class="card"><div class="muted" style="margin-bottom:8px">${hint}</div><div class="cal">${grid}</div>
       <div class="legend"><span><i class="dot on"></i>เลือกอยู่</span>
