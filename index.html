@@ -255,7 +255,7 @@
   .pick { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .pick button { min-height: 64px; border-radius: 20px; background: #fff; border: 2px solid var(--line); font-size: 19px; font-weight: 700; text-align: left; padding: 8px 14px; line-height: 1.25; }
   .pick button.on { border: 3px solid var(--brand); background: var(--brand-50); }
-  .pick button[disabled] { opacity: .55; border-style: dashed; }
+  .pick button[disabled], .pick button.taken:not(.on) { opacity: .7; border-style: dashed; }
   .pick button small { display: block; font-size: 15px; font-weight: 600; color: var(--muted); }
   /* ---------- แอดมิน ---------- */
   .steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-bottom: 8px; }
@@ -312,7 +312,7 @@
 //   LIFF ID ไม่ต้องใส่ในไฟล์นี้ — หน้าเว็บถามจากเซิร์ฟเวอร์เอง (อยู่ใน Script Properties ชื่อ LIFF_ID)
 //   ทุกร้านใช้ไฟล์นี้ไฟล์เดียว · ลิงก์ของแต่ละร้าน = https://liff.line.me/<LIFF_ID>?shop=<รหัสร้าน>
 const API_URL = 'https://script.google.com/macros/s/AKfycbz9-l35mscehL9Cjpg5eAIpCAjs1Zs8_02Rm76Xhx3StA6SXs-e2idJn3u22KqpVVxZ/exec';
-let LIFF_ID = '__LIFF_ID__';   // เปิดผ่าน URL ของ Apps Script ระบบเติมให้ · เว็บอื่นปล่อยไว้แบบนี้ได้
+let LIFF_ID = '2011983905-DYC3S7LZ';   // เปิดผ่าน URL ของ Apps Script ระบบเติมให้ · เว็บอื่นปล่อยไว้แบบนี้ได้
 
 const ST_WORK = 'มาทำงาน';
 const DOW = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
@@ -753,15 +753,16 @@ function renderRegister() {
   }
   const btns = all.map(n => {
     const isFree = free.indexOf(n) >= 0;
-    return `<button data-n="${esc(n)}" class="${regPick === n ? 'on' : ''}" ${isFree ? '' : 'disabled'}>${esc(n)}${isFree ? '' : '<small>ผูกเครื่องอื่นแล้ว</small>'}</button>`;
+    return `<button data-n="${esc(n)}" class="${regPick === n ? 'on' : ''}${isFree ? '' : ' taken'}">${esc(n)}${isFree ? '' : '<small>ผูกเครื่องอื่นแล้ว · แตะเพื่อขอย้าย</small>'}</button>`;
   }).join('');
-  app.innerHTML = `
+  const taken = regPick && free.indexOf(regPick) < 0;   // ชื่อที่ผูกเครื่องอื่นอยู่ → ขอย้ายเครื่อง (ผู้จัดการอนุมัติ)
+  app.innerHTML = `${S.claim ? `<div class="card"><div class="note warn" style="margin:0">⏳ ขอย้ายเครื่องเป็น <b>${esc(S.claim.name)}</b> แล้ว · รอผู้จัดการกดอนุมัติ<br><span style="font-size:15px">อนุมัติแล้ว ปิดแล้วเปิดลิงก์ร้านใหม่</span></div></div>` : ''}
     <div class="card hero" style="background:var(--brand-500);border-color:var(--brand-500)"><div class="hm">${nongSvg('wink', 120)}</div>
       <h2 style="margin:4px 0 0;font-size:26px">สวัสดี! คุณคือใคร?</h2><div style="font-weight:600">แตะชื่อตัวเอง ทำครั้งเดียว ใช้ได้ตลอด</div></div>
     <div class="card">${btns ? `<div class="pick">${btns}</div>` : '<div class="muted">ร้านนี้ยังไม่มีรายชื่อ — ให้ผู้จัดการเพิ่มชื่อก่อน หรือแตะ "ไม่เจอชื่อ" ด้านล่าง</div>'}
       ${regPick ? codeBox : ''}
-      ${all.length && !free.length ? '<div class="note warn">ทุกชื่อผูกเครื่องแล้ว — เปลี่ยนเครื่อง? ให้ผู้จัดการกด "ปลดเครื่อง" ให้ก่อน</div>' : ''}</div>
-    <button class="btn" id="rgGo" ${regPick ? '' : 'disabled'}>${regPick ? 'ใช่ ฉันคือ ' + esc(regPick) : 'แตะชื่อของคุณก่อน'}</button>
+      ${taken ? `<div class="note warn">ชื่อ ${esc(regPick)} ผูกกับเครื่องอื่นอยู่ · ส่งคำขอย้ายมาเครื่องนี้ แล้วให้ผู้จัดการกดอนุมัติ</div>` : ''}</div>
+    <button class="btn" id="rgGo" ${regPick ? '' : 'disabled'}>${!regPick ? 'แตะชื่อของคุณก่อน' : taken ? 'ขอย้ายเครื่องมาที่นี่' : 'ใช่ ฉันคือ ' + esc(regPick)}</button>
     <div class="center"><button class="small-btn ghost" id="rgNew" style="margin-top:8px">ไม่เจอชื่อ? ลงทะเบียนใหม่</button></div>
     ${joinMode ? '<div class="gap"></div><button class="btn quiet" id="rgCancel">กลับหน้าผู้จัดการ</button>' : ''}
     ${S.uid ? `<div class="muted center" style="font-size:13px;margin-top:14px;word-break:break-all">ไอดีของคุณ: ${esc(S.uid)} <button class="small-btn ghost" id="rgUid" style="padding:2px 10px;min-height:0">ก๊อป</button></div>` : ''}`;
@@ -775,7 +776,7 @@ function renderRegister() {
     const c = document.getElementById('rgCode'), code = c ? c.value.trim() : '';
     if (!regPick) return;
     if (!code) return toast('ใส่รหัสร้าน 4 ตัวด้วยนะ', 'bad');
-    act('relink', { name: regPick, code });
+    act(taken ? 'claimReq' : 'relink', { name: regPick, code });
   };
 }
 
@@ -1305,6 +1306,10 @@ function bossTodayHtml(r) {
       ${r.locked ? '<span class="pill bad">งวดปิดแล้ว แก้ไม่ได้</span>' : ''}</div>${moreBtn('bt')}</div>
       ${moreBox('bt', extra)}</div>
     ${holidayCard(r)}
+    ${(r.claims || []).map(c => `<div class="card" style="border-color:var(--brand)"><div class="row" style="flex-wrap:nowrap"><div style="flex:1;min-width:0"><b>🔄 ${esc(c.name)} ขอย้ายเครื่อง</b>
+      <div class="muted" style="font-size:15px">${esc(c.at)} · อนุมัติแล้ว ${esc(c.name)} ใช้เครื่องใหม่ได้ทันที ประวัติเดิมย้ายตาม</div></div></div>
+      <div class="row" style="margin-top:10px"><button class="small-btn green" data-cy="${esc(c.id)}" style="flex:1">${armed === 'cy' + c.id ? 'แตะอีกครั้ง ยืนยัน' : 'อนุมัติ'}</button>
+      <button class="small-btn red" data-cn="${esc(c.id)}" style="flex:1">${armed === 'cn' + c.id ? 'แตะอีกครั้ง' : 'ไม่อนุมัติ'}</button></div></div>`).join('')}
     ${S.canJoin ? `<div class="card"><div class="row" style="flex-wrap:nowrap"><div style="flex:1;min-width:0"><b>👤 คุณทำงานในร้านนี้ด้วย?</b>
       <div class="muted" style="font-size:15px">ลงชื่อเป็นพนักงาน แล้วจะมีแท็บลงเวลาของตัวเอง</div></div>
       <button class="small-btn" id="joinGo">ลงชื่อ</button></div></div>` : ''}
@@ -1551,6 +1556,9 @@ function wireBoss(app) {
     if (hOff) hOff.onclick = () => twoTap('holiOff', () => holi(false));
     const rc = document.getElementById('rcGo');
     if (rc) rc.onclick = () => twoTap('reclose', async () => { await doClose(val('rcTime')); loadBoss(); });
+    const claim = async (id, yes) => { const res = await act('claimDecide', { id, yes }); if (res && res.ok) { bossCache.today = null; loadBoss(); } };
+    app.querySelectorAll('[data-cy]').forEach(b => b.onclick = () => twoTap('cy' + b.dataset.cy, () => claim(b.dataset.cy, true)));
+    app.querySelectorAll('[data-cn]').forEach(b => b.onclick = () => twoTap('cn' + b.dataset.cn, () => claim(b.dataset.cn, false)));
     const jg = document.getElementById('joinGo');
     if (jg) jg.onclick = () => { joinMode = true; regMode = ''; regPick = ''; render(); window.scrollTo(0, 0); };
     const pp = document.getElementById('phPurge');
