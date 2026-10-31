@@ -176,6 +176,10 @@
   .skel.s2 { height: 120px; } .skel.s3 { height: 88px; opacity: .7; }
   @keyframes hop { 0%,100% { transform: translateY(0) scale(1.06,.94); } 45% { transform: translateY(-22px) scale(.96,1.04) rotate(-6deg); } 60% { transform: translateY(-22px) rotate(6deg); } }
   @keyframes squish { 0%,100% { transform: scaleX(1); opacity: 1; } 50% { transform: scaleX(.55); opacity: .5; } }
+  button.sending { opacity: .75; cursor: progress; }
+  button.sending::after { content: ''; display: inline-block; width: .8em; height: .8em; margin-left: 8px; vertical-align: -1px;
+    border: 3px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
   @keyframes blink { 0%,80%,100% { transform: scale(.6); opacity: .35; } 40% { transform: scale(1); opacity: 1; } }
   @keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
   .btn[disabled] .busy::after, .small-btn[disabled] .busy::after { content: '…'; display: inline-block; width: 1.2em; text-align: left; animation: blink 1.2s infinite; }
@@ -312,7 +316,7 @@
 //   LIFF ID ไม่ต้องใส่ในไฟล์นี้ — หน้าเว็บถามจากเซิร์ฟเวอร์เอง (อยู่ใน Script Properties ชื่อ LIFF_ID)
 //   ทุกร้านใช้ไฟล์นี้ไฟล์เดียว · ลิงก์ของแต่ละร้าน = https://liff.line.me/<LIFF_ID>?shop=<รหัสร้าน>
 const API_URL = 'https://script.google.com/macros/s/AKfycbz9-l35mscehL9Cjpg5eAIpCAjs1Zs8_02Rm76Xhx3StA6SXs-e2idJn3u22KqpVVxZ/exec';
-let LIFF_ID = '2011983905-DYC3S7LZ';   // เปิดผ่าน URL ของ Apps Script ระบบเติมให้ · เว็บอื่นปล่อยไว้แบบนี้ได้
+let LIFF_ID = '__LIFF_ID__';   // เปิดผ่าน URL ของ Apps Script ระบบเติมให้ · เว็บอื่นปล่อยไว้แบบนี้ได้
 
 const ST_WORK = 'มาทำงาน';
 const DOW = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
@@ -499,10 +503,22 @@ function setState(j) {
  * ทำงาน 1 ปุ่ม: เปลี่ยนหน้าจอก่อน แล้วบันทึกเบื้องหลัง
  * rid = รหัสการกดครั้งนี้ · ส่งซ้ำ (เน็ตหลุด/กดใหม่) ใช้ rid เดิม → เซิร์ฟเวอร์บันทึกครั้งเดียว
  */
+// ปุ่มที่เพิ่งแตะ → act() ทำให้ขึ้น "กำลังบันทึก…" ทันที ทุกปุ่มโดยไม่ต้องแก้ทีละจุด (จอวาดใหม่ = ปุ่มหายเอง)
+let lastTap = null, lastTapAt = 0;
+document.addEventListener('click', e => { lastTap = e.target.closest && e.target.closest('button'); lastTapAt = Date.now(); }, true);
+function markSending() {
+  const b = lastTap;
+  if (!b || Date.now() - lastTapAt > 1000 || !b.isConnected || b.classList.contains('sending')) return null;
+  const label = b.innerHTML;
+  b.classList.add('sending'); b.disabled = true; b.innerHTML = 'กำลังส่ง…';
+  return () => { if (b.isConnected) { b.classList.remove('sending'); b.disabled = false; b.innerHTML = label; } };
+}
+
 async function act(action, extra, optimistic) {
-  if (busy[action]) return null;
+  if (busy[action]) { toast('⏳ กำลังส่งอยู่ รอแป๊บนะ', 'warn', 2500); return null; }
   const rid = pendingRid(action);
   busy[action] = true;
+  const unmark = optimistic ? null : markSending();   // เปลี่ยนจอทันทีอยู่แล้ว ไม่ต้องหมุนที่ปุ่ม
   const before = S ? JSON.parse(JSON.stringify(S)) : null;
   if (optimistic && S) { optimistic(S); render(); }
   let res = null, lastErr = null;
@@ -511,6 +527,7 @@ async function act(action, extra, optimistic) {
     catch (e) { lastErr = e; await sleep(1000 * (i + 1) * (i + 1)); }
   }
   busy[action] = false;
+  if (unmark) unmark();
   if (!res) {
     if (before) S = before;
     render();
@@ -655,8 +672,18 @@ function inGroup() {
   try { const c = liff.getContext(); return !!c && (c.type === 'group' || c.type === 'room'); } catch (e) { return false; }
 }
 /** บันทึกลงชีตเสร็จก่อนเสมอ แล้วค่อยส่ง · ส่งพลาด → เก็บไว้ให้กด "ส่งแจ้งอีกครั้ง" (เวลาที่บันทึกไม่หาย) */
-async function shareToGroup(text, card) {
-  if (!text || !inGroup()) return;
+async function shareToGroup(text, card, picked) {
+  if (!text) return;
+  if (!inGroup()) {   // เปิดจากริชเมนู/แชทบอท/เบราว์เซอร์ → ส่งเข้ากลุ่มเองไม่ได้: อย่าเงียบ เก็บไว้ให้กดเลือกกลุ่มส่ง
+    if (picked && liff.isApiAvailable && liff.isApiAvailable('shareTargetPicker')) {
+      try {
+        const r = await liff.shareTargetPicker([card || { type: 'text', text: text.slice(0, 4900) }]);
+        if (r) { setPendingShare(''); toast('📣 ส่งแจ้งในกลุ่มแล้ว', 'ok'); }
+      } catch (e) { toast('📣 เลือกกลุ่มส่งไม่สำเร็จ (' + String((e && (e.code || e.message)) || '').slice(0, 80) + ')', 'warn', 8000); }
+    } else if (picked) toast('📣 ส่งจากหน้านี้ไม่ได้ — เปิดลิงก์ร้านจากในห้องแชทกลุ่มร้าน แล้วกดใหม่', 'warn', 8000);
+    else setPendingShare(text);
+    return render();
+  }
   try {
     if (!liff.isApiAvailable('sendMessages')) throw new Error('ส่งข้อความจากหน้านี้ไม่ได้');
     let sent = false;
@@ -726,7 +753,7 @@ function render() {
 }
 
 // ---------- ลงทะเบียน: เลือกชื่อที่ผู้จัดการ/แอดมินเพิ่มไว้ + รหัส 4 ตัว (ไม่ต้องสมัคร) ----------
-let regMode = '', regPick = '', joinMode = false;
+let regMode = '', regPick = '', joinMode = false, regCode = '', regRe = false;   // regCode: วาดหน้าใหม่แล้วรหัสไม่หาย · regRe: ขอไปแล้วแต่จะเลือกชื่อใหม่
 document.addEventListener('touchstart', () => {}, { passive: true });   // iOS แสดงอาการกดปุ่ม (:active) เฉพาะหน้าที่ฟัง touchstart
 function renderRegister() {
   document.getElementById('tabs').hidden = true;
@@ -734,7 +761,8 @@ function renderRegister() {
   const app = document.getElementById('app');
   const free = S.free || [], all = S.names || [];
   const codeBox = `<div class="field" style="margin:14px 0 0"><label for="rgCode">รหัสร้าน 4 ตัว (ขอจากผู้จัดการ)</label>
-      <input id="rgCode" inputmode="numeric" autocomplete="off" maxlength="8"></div>`;
+      <input id="rgCode" inputmode="numeric" autocomplete="off" maxlength="8" value="${esc(regCode)}"></div>`;
+  const sending = busy.claimReq || busy.relink || busy.register;
   if (regMode === 'new') {
     app.innerHTML = `
       <div class="card hero"><div class="hm">${nongSvg('happy', 110)}</div><h2 style="margin:6px 0 0">ลงทะเบียนชื่อใหม่</h2>
@@ -751,21 +779,40 @@ function renderRegister() {
     };
     return;
   }
+  const owners = S.owners || [];
   const btns = all.map(n => {
-    const isFree = free.indexOf(n) >= 0;
-    return `<button data-n="${esc(n)}" class="${regPick === n ? 'on' : ''}${isFree ? '' : ' taken'}">${esc(n)}${isFree ? '' : '<small>ผูกเครื่องอื่นแล้ว · แตะเพื่อขอย้าย</small>'}</button>`;
+    const isFree = free.indexOf(n) >= 0, own = owners.indexOf(n) >= 0;
+    return `<button data-n="${esc(n)}" class="${regPick === n ? 'on' : ''}${isFree ? '' : ' taken'}">${esc(n)}${isFree ? '' : `<small>ผูกเครื่องอื่นแล้ว · ${own ? 'แตะเพื่อขอย้าย' : 'ใส่รหัสย้ายมาเครื่องนี้ได้'}</small>`}</button>`;
   }).join('');
-  const taken = regPick && free.indexOf(regPick) < 0;   // ชื่อที่ผูกเครื่องอื่นอยู่ → ขอย้ายเครื่อง (ผู้จัดการอนุมัติ)
-  app.innerHTML = `${S.claim ? `<div class="card"><div class="note warn" style="margin:0">⏳ ขอย้ายเครื่องเป็น <b>${esc(S.claim.name)}</b> แล้ว · รอผู้จัดการกดอนุมัติ<br><span style="font-size:15px">อนุมัติแล้ว ปิดแล้วเปิดลิงก์ร้านใหม่</span></div></div>` : ''}
+  // ชื่อที่ผูกเครื่องอื่นอยู่: รหัสร้านถูก = ย้ายมาได้เลย · เฉพาะชื่อเจ้าของร้านต้องขอย้ายเครื่อง (แอดมินอนุมัติ)
+  const taken = regPick && free.indexOf(regPick) < 0 && owners.indexOf(regPick) >= 0;
+  const moving = regPick && free.indexOf(regPick) < 0 && !taken;
+  const uidLine = S.uid ? `<div class="muted center" style="font-size:13px;margin-top:14px;word-break:break-all">ไอดีของคุณ: ${esc(S.uid)} <button class="small-btn ghost" id="rgUid" style="padding:2px 10px;min-height:0">ก๊อป</button></div>` : '';
+  if (S.claim && !regRe) {   // ส่งคำขอแล้ว → หน้านี้มีแค่สถานะรอ (ไม่ให้แตะซ้ำแล้วงงว่าส่งหรือยัง)
+    app.innerHTML = `<div class="card hero"><div class="hm">${nongSvg('happy', 110)}</div>
+        <h2 style="margin:6px 0 0">ส่งคำขอแล้ว ⏳</h2>
+        <div style="font-weight:600">ขอย้ายเครื่องเป็น <b>${esc(S.claim.name)}</b><br>รอผู้จัดการกดอนุมัติในแอป แล้วแตะ "เช็คอีกครั้ง"</div></div>
+      <button class="btn" id="rgCheck">เช็คอีกครั้ง</button>
+      <div class="center"><button class="small-btn ghost" id="rgRe" style="margin-top:8px">เลือกชื่อใหม่</button></div>${uidLine}`;
+    document.getElementById('rgCheck').onclick = async e => { e.target.disabled = true; e.target.textContent = 'กำลังเช็ค… ⏳'; await refresh(); render(); if (S && S.claim && !S.registered) toast('ยังรอผู้จัดการอนุมัติอยู่', 'warn'); };
+    document.getElementById('rgRe').onclick = () => { regRe = true; render(); };
+    const ru0 = document.getElementById('rgUid');
+    if (ru0) ru0.onclick = () => copyText(S.uid);
+    return;
+  }
+  app.innerHTML = `
     <div class="card hero" style="background:var(--brand-500);border-color:var(--brand-500)"><div class="hm">${nongSvg('wink', 120)}</div>
       <h2 style="margin:4px 0 0;font-size:26px">สวัสดี! คุณคือใคร?</h2><div style="font-weight:600">แตะชื่อตัวเอง ทำครั้งเดียว ใช้ได้ตลอด</div></div>
     <div class="card">${btns ? `<div class="pick">${btns}</div>` : '<div class="muted">ร้านนี้ยังไม่มีรายชื่อ — ให้ผู้จัดการเพิ่มชื่อก่อน หรือแตะ "ไม่เจอชื่อ" ด้านล่าง</div>'}
       ${regPick ? codeBox : ''}
-      ${taken ? `<div class="note warn">ชื่อ ${esc(regPick)} ผูกกับเครื่องอื่นอยู่ · ส่งคำขอย้ายมาเครื่องนี้ แล้วให้ผู้จัดการกดอนุมัติ</div>` : ''}</div>
-    <button class="btn" id="rgGo" ${regPick ? '' : 'disabled'}>${!regPick ? 'แตะชื่อของคุณก่อน' : taken ? 'ขอย้ายเครื่องมาที่นี่' : 'ใช่ ฉันคือ ' + esc(regPick)}</button>
+      ${taken ? `<div class="note warn">ชื่อ ${esc(regPick)} เป็นเจ้าของร้าน · ส่งคำขอย้ายมาเครื่องนี้ แล้วให้แอดมินกดอนุมัติ</div>` : ''}
+      ${moving ? `<div class="note warn">ชื่อ ${esc(regPick)} ผูกกับเครื่องอื่นอยู่ · ใส่รหัสร้านแล้วจะย้ายมาเครื่องนี้ (เครื่องเดิมใช้ไม่ได้)</div>` : ''}</div>
+    <button class="btn" id="rgGo" ${regPick && !sending ? '' : 'disabled'}>${sending ? 'กำลังส่ง… ⏳' : !regPick ? 'แตะชื่อของคุณก่อน' : taken ? 'ขอย้ายเครื่องมาที่นี่' : 'ใช่ ฉันคือ ' + esc(regPick)}</button>
     <div class="center"><button class="small-btn ghost" id="rgNew" style="margin-top:8px">ไม่เจอชื่อ? ลงทะเบียนใหม่</button></div>
     ${joinMode ? '<div class="gap"></div><button class="btn quiet" id="rgCancel">กลับหน้าผู้จัดการ</button>' : ''}
-    ${S.uid ? `<div class="muted center" style="font-size:13px;margin-top:14px;word-break:break-all">ไอดีของคุณ: ${esc(S.uid)} <button class="small-btn ghost" id="rgUid" style="padding:2px 10px;min-height:0">ก๊อป</button></div>` : ''}`;
+    ${uidLine}`;
+  const rcode = document.getElementById('rgCode');
+  if (rcode) rcode.oninput = () => { regCode = rcode.value; };
   const ru = document.getElementById('rgUid');
   if (ru) ru.onclick = () => copyText(S.uid);
   const rc = document.getElementById('rgCancel');
@@ -776,7 +823,10 @@ function renderRegister() {
     const c = document.getElementById('rgCode'), code = c ? c.value.trim() : '';
     if (!regPick) return;
     if (!code) return toast('ใส่รหัสร้าน 4 ตัวด้วยนะ', 'bad');
-    act(taken ? 'claimReq' : 'relink', { name: regPick, code });
+    const a = taken ? 'claimReq' : 'relink';
+    const p = act(a, { name: regPick, code });
+    render();                                     // ปุ่มขึ้น "กำลังส่ง…" ทันที
+    p.then(res => { if (res && res.ok && a === 'claimReq') { regRe = false; window.scrollTo(0, 0); } });
   };
 }
 
@@ -839,7 +889,9 @@ function renderTime() {
 
   if (pendingShare) {
     html += `<div class="card"><div class="note warn" style="margin-top:0">📣 ยังไม่ได้แจ้งในกลุ่ม<br><span style="font-size:15px">${esc(pendingShare.split('\n')[0])}</span></div>
-      <div class="gap" style="height:10px"></div><button class="small-btn" id="bShare" style="width:100%">📣 ส่งแจ้งอีกครั้ง</button></div>`;
+      ${inGroup() ? '' : '<div class="muted" style="font-size:14px;margin-top:6px">ไม่ได้เปิดจากห้องแชทกลุ่ม · แตะส่งแล้วเลือกกลุ่มร้าน</div>'}
+      <div class="gap" style="height:10px"></div><div class="row"><button class="small-btn" id="bShare" style="flex:2">📣 ${inGroup() ? 'ส่งแจ้งอีกครั้ง' : 'เลือกกลุ่มแล้วส่ง'}</button>
+      <button class="small-btn ghost" id="bShareX" style="flex:1">ไม่ต้อง</button></div></div>`;
   }
 
   // 1) สถานะ
@@ -915,7 +967,8 @@ function renderTime() {
 
   const on = (id, fn) => { const el = document.getElementById(id); if (el) el.onclick = fn; };
   on('bIn', checkIn);
-  on('bShare', () => shareToGroup(pendingShare));
+  on('bShare', () => shareToGroup(pendingShare, null, true));
+  on('bShareX', () => { setPendingShare(''); render(); });
   // รอบ A: ส่งเวลาที่แตะ (tap) ไปด้วย — เซิร์ฟเวอร์ใช้เวลานี้ถ้าไม่เก่ากว่า 90 วิ (ไม่โดนนับช้าเพราะรอคิว/เน็ต)
   on('bOut', () => twoTap('out', () => {
     const tap = nowMs(), at = hhmm(tap);
@@ -1144,7 +1197,7 @@ function renderLeave() {
     if (i >= 0) leaveSel.splice(i, 1); else if (leaveSel.length < 14) leaveSel.push(k);
     render();
   });
-  app.querySelectorAll('[data-cancel]').forEach(b => b.onclick = () => twoTap('cancel' + b.dataset.cancel, () => act('cancelLeave', { id: b.dataset.cancel })));
+  app.querySelectorAll('[data-cancel]').forEach(b => b.onclick = () => twoTap('cancel' + b.dataset.cancel, () => act('cancelLeave', { id: b.dataset.cancel }, s => { s.myLeaves = (s.myLeaves || []).filter(l => l.id !== b.dataset.cancel); })));
   document.getElementById('lvGo').onclick = async () => {
     const r = await act('leave', { type: leaveType, dates: leaveSel.slice().sort() });
     if (r && r.ok) leaveSel = [];
@@ -1396,8 +1449,8 @@ function sendShift(r, body, key) {
   shiftTimers[key] = setTimeout(async () => {
     try {
       const res = await api('setShift', Object.assign({ week: r.week, rid: Date.now().toString(36) + Math.random().toString(36).slice(2) }, body));
-      if (!res.ok) { toast(res.text || res.error || 'บันทึกไม่สำเร็จ', 'bad', 6000); bossCache.shift = null; loadBoss(); }
-    } catch (e) { toast('📶 บันทึกกะไม่สำเร็จ ลองแตะใหม่อีกครั้ง', 'bad', 6000); bossCache.shift = null; loadBoss(); }
+      if (!res.ok) { toast(res.text || res.error || 'บันทึกไม่สำเร็จ', 'bad', 6000); loadBoss(); }
+    } catch (e) { toast('📶 บันทึกกะไม่สำเร็จ ลองแตะใหม่อีกครั้ง', 'bad', 6000); loadBoss(); }
   }, 700);
 }
 
@@ -1549,29 +1602,30 @@ function wireBoss(app) {
     if (hw) hw.oninput = () => { holiReason = hw.value; };
     const holi = async on => {
       const res = await act('holiday', { date: r.key, on, reason: on ? holiReason.trim() : '' });
-      if (res && res.ok) { holiReason = ''; moreOpen = ''; bossCache.today = null; loadBoss(); refresh(); }
+      if (res && res.ok) { holiReason = ''; moreOpen = ''; loadBoss(); refresh(); }
     };
     const hOn = document.getElementById('holiOn'), hOff = document.getElementById('holiOff');
     if (hOn) hOn.onclick = () => twoTap('holiOn', () => holi(true));
     if (hOff) hOff.onclick = () => twoTap('holiOff', () => holi(false));
     const rc = document.getElementById('rcGo');
     if (rc) rc.onclick = () => twoTap('reclose', async () => { await doClose(val('rcTime')); loadBoss(); });
-    const claim = async (id, yes) => { const res = await act('claimDecide', { id, yes }); if (res && res.ok) { bossCache.today = null; loadBoss(); } };
+    const claim = async (id, yes) => { await act('claimDecide', { id, yes }, () => { r.claims = (r.claims || []).filter(c => c.id !== id); }); loadBoss(); };   // การ์ดหายทันที
     app.querySelectorAll('[data-cy]').forEach(b => b.onclick = () => twoTap('cy' + b.dataset.cy, () => claim(b.dataset.cy, true)));
     app.querySelectorAll('[data-cn]').forEach(b => b.onclick = () => twoTap('cn' + b.dataset.cn, () => claim(b.dataset.cn, false)));
     const jg = document.getElementById('joinGo');
     if (jg) jg.onclick = () => { joinMode = true; regMode = ''; regPick = ''; render(); window.scrollTo(0, 0); };
     const pp = document.getElementById('phPurge');
-    if (pp) pp.onclick = () => twoTap('phPurge', async () => { const res = await act('purgePhotos', {}); if (res && res.ok) { moreOpen = ''; bossCache.today = null; loadBoss(); } });
+    if (pp) pp.onclick = () => twoTap('phPurge', async () => { const res = await act('purgePhotos', {}); if (res && res.ok) { moreOpen = ''; loadBoss(); } });
     app.querySelectorAll('[data-ph]').forEach(b => b.onclick = () => showPhoto(b.dataset.ph));
   }
   if (bossTab === 'leaves') {
-    app.querySelectorAll('[data-ok]').forEach(b => b.onclick = async () => { await act('decide', { id: b.dataset.ok, decision: 'อนุมัติ' }); loadBoss(); });
+    app.querySelectorAll('[data-ok]').forEach(b => b.onclick = async () => { const x = r.items.filter(i => i.id === b.dataset.ok)[0];
+      await act('decide', { id: b.dataset.ok, decision: 'อนุมัติ' }, () => { if (x && x.todo) { x.todo = false; r.todo = Math.max(0, (r.todo || 0) - 1); } }); loadBoss(); });
     app.querySelectorAll('[id^="r_"]').forEach(el => el.oninput = () => { lvReason[el.id.slice(2)] = el.value; });
     app.querySelectorAll('[data-no]').forEach(b => b.onclick = () => {
       const id = b.dataset.no, x = r.items.filter(i => i.id === id)[0], reason = val('r_' + id).trim();
       if (x && x.name === S.me.name && !reason) return toast('⚠️ ใบลาของตัวเองต้องใส่เหตุผลก่อน', 'bad');
-      twoTap('no' + id, async () => { await act('decide', { id, decision: 'ปฏิเสธ', reason }); loadBoss(); });
+      twoTap('no' + id, async () => { await act('decide', { id, decision: 'ปฏิเสธ', reason }, () => { if (x) { if (x.todo) r.todo = Math.max(0, (r.todo || 0) - 1); x.status = 'ปฏิเสธ'; x.todo = false; } }); loadBoss(); });
     });
     app.querySelectorAll('[data-units]').forEach(b => b.onclick = async () => { await act('adjustUnits', { id: b.dataset.units, units: val('u_' + b.dataset.units) }); loadBoss(); });
   }
@@ -1595,12 +1649,14 @@ function wireBoss(app) {
     });
     const cp = document.getElementById('shCopy');
     if (cp) cp.onclick = async () => {
+      if (busy.shCopy) return;
       busy.shCopy = true; renderBoss();
       try {
-        const res = await api('setShift', { week: r.week, copy: true, rid: 'cp' + r.week + Date.now().toString(36) });
+        const res = await api('setShift', { week: r.week, copy: true, rid: pendingRid('shCopy' + r.week) });   // เน็ตหลุดแล้วกดใหม่ = rid เดิม ไม่คัดลอกซ้ำ
+        clearPending('shCopy' + r.week);
         toast((res.text || res.error || '') + (res.ok ? '\n' + nong('ok') : ''), res.ok ? 'ok' : 'bad', 5000);
       } catch (e) { toast('📶 บันทึกไม่สำเร็จ กดอีกครั้งได้เลย', 'bad', 6000); }
-      busy.shCopy = false; bossCache.shift = null; loadBoss();
+      busy.shCopy = false; loadBoss();
     };
   }
   if (bossTab === 'pay') {
@@ -1608,9 +1664,9 @@ function wireBoss(app) {
       document.getElementById('slipBox').innerHTML = `<div class="card"><pre>${esc(r.items[+el.dataset.slip].slip)}</pre></div>`;
     });
     const pc = document.getElementById('pClose');
-    if (pc) pc.onclick = () => twoTap('closeP', async () => { await act('closePeriod'); bossCache.pay = null; loadBoss(); });
+    if (pc) pc.onclick = () => twoTap('closeP', async () => { await act('closePeriod'); loadBoss(); });
     const pu = document.getElementById('pUndo');
-    if (pu) pu.onclick = () => twoTap('undoP', async () => { await act('undoPeriod'); bossCache.pay = null; loadBoss(); });
+    if (pu) pu.onclick = () => twoTap('undoP', async () => { await act('undoPeriod'); loadBoss(); });
   }
   if (bossTab === 'set') {
     const ods = document.getElementById('odSave');
@@ -1632,8 +1688,8 @@ function wireBoss(app) {
     });
     app.querySelectorAll('[data-role]').forEach(b => b.onclick = async () => {
       const e = r.emps[+b.dataset.role];
-      const res = await act('setRole', { name: e.name, manager: !e.manager });
-      if (res && res.ok) { await refresh(); loadBoss(); }
+      const res = await act('setRole', { name: e.name, manager: !e.manager }, () => { e.manager = !e.manager; });   // ป้ายสลับทันที
+      if (res && res.ok) refresh(); loadBoss();
     });
     wireLoc('ol', async (lat, lng) => { const res = await act('setShopGps', { lat, lng }); if (res && res.ok) loadBoss(); else renderBoss(); },
             b => { busy.gps = b; renderBoss(); });
@@ -1644,7 +1700,7 @@ function wireBoss(app) {
     wireBranch(r);
     app.querySelectorAll('[data-esh]').forEach(el => el.onchange = async () => { const e = r.emps[+el.dataset.esh]; await act('setEmpShift', { name: e.name, shift: el.value }); loadBoss(); });
     wirePaySet('os', () => renderBoss(),
-      async b => { const res = await act('setPayCycle', b); if (res && res.ok) { moreOpen = 'set'; bossCache.pay = null; loadBoss(); } return res && res.ok; },
+      async b => { const res = await act('setPayCycle', b); if (res && res.ok) { moreOpen = 'set'; loadBoss(); } return res && res.ok; },
       async b => { const res = await act('setShifts', b); if (res && res.ok) { moreOpen = 'set'; await refresh(); loadBoss(); } return res && res.ok; });
   }
 }
@@ -1878,6 +1934,8 @@ async function loadAdmin() {
   if (tab === 'admin' && adm.view === v) renderAdmin();
 }
 
+/** เปิดร้านเดิมซ้ำ = โชว์ข้อมูลเดิมก่อนแล้วอัปเดต · ร้านอื่น = ล้าง (ข้อมูลคนละชุด) */
+function keepShop() { const d = admData.shop; if (!d || !d.shop || d.shop.id !== adm.shop) admData.shop = null; }
 function renderAdmin() {
   adminButton();
   renderBill();
@@ -1929,9 +1987,9 @@ function renderAdmin() {
   if (ys) ys.onclick = async () => {
     const v = id => document.getElementById(id).value;
     const res = await act('adminSetSystem', { fee: v('yFee'), remind: v('yRemind'), grace: v('yGrace'), pay: v('yPay') });
-    if (res && res.ok) { admData.sys = res; admData.home = null; loadAdmin(); }
+    if (res && res.ok) { admData.sys = res; loadAdmin(); }
   };
-  app.querySelectorAll('[data-shop]').forEach(b => b.onclick = () => { adm = { view: 'shop', shop: b.dataset.shop }; admData.shop = null; renderAdmin(); loadAdmin(); });
+  app.querySelectorAll('[data-shop]').forEach(b => b.onclick = () => { adm = { view: 'shop', shop: b.dataset.shop }; keepShop(); renderAdmin(); loadAdmin(); });
   if (moreOpen === 'adm' && !admData.admins) api('adminAdmins').then(x => { admData.admins = x; if (adm.view === 'home') renderAdmin(); }).catch(() => {});
   const aa = document.getElementById('aaGo');
   if (aa) aa.onclick = async () => {
@@ -2160,8 +2218,8 @@ function renderDone(app) {
     <button class="btn quiet" id="dHome">กลับหน้าร้านทั้งหมด</button>`;
   drawQr(document.getElementById('qrBox'), r.link);
   const c = document.getElementById('dCopy'); if (c) c.onclick = () => copyText(r.link);
-  document.getElementById('dShop').onclick = () => { adm = { view: 'shop', shop: id }; admData.shop = null; renderAdmin(); loadAdmin(); };
-  document.getElementById('dHome').onclick = () => { adm = { view: 'home' }; admData.home = null; renderAdmin(); loadAdmin(); };
+  document.getElementById('dShop').onclick = () => { adm = { view: 'shop', shop: id }; keepShop(); renderAdmin(); loadAdmin(); };
+  document.getElementById('dHome').onclick = () => { adm = { view: 'home' }; renderAdmin(); loadAdmin(); };
 }
 
 let admOpen = '', admLocBusy = '';
@@ -2223,7 +2281,7 @@ function renderAdmShop(app) {
   const $ = id => document.getElementById(id);
   const edit = async (body, keepOpen) => { const res = await act('adminStaffEdit', Object.assign({ shop: sh.id }, body)); if (res && res.ok) { if (!keepOpen) admOpen = ''; loadAdmin(); } };
   const cp = $('sCopy'); if (cp) cp.onclick = () => copyText(r.link);
-  $('sBack').onclick = () => { adm = { view: 'home' }; admData.home = null; renderAdmin(); loadAdmin(); };
+  $('sBack').onclick = () => { adm = { view: 'home' }; renderAdmin(); loadAdmin(); };
   wireDeptPick(app);
   $('nAdd').onclick = () => {
     const name = $('nName').value.trim(), wage = $('nWage').value;
@@ -2232,7 +2290,7 @@ function renderAdmShop(app) {
     edit({ op: 'add', name, wage: +wage, dept: $('nDept').value.trim(), manager: $('nMgr').checked, shift: $('nShift') ? $('nShift').value : '' });
   };
   app.querySelectorAll('[data-er]').forEach(b => b.onclick = () => { const e = r.staff[+b.dataset.er]; edit({ op: 'role', name: e.name, manager: e.role !== 'ผู้จัดการ' }, true); });
-  const renew = async () => { const res = await act('adminSetShop', { shop: sh.id, renew: 1 }); if (res && res.ok) { admData.home = null; loadAdmin(); } };
+  const renew = async () => { const res = await act('adminSetShop', { shop: sh.id, renew: 1 }); if (res && res.ok) loadAdmin(); };
   if ($('sRenew')) $('sRenew').onclick = renew;
   if ($('sRenew2')) $('sRenew2').onclick = renew;
   wireLoc('al', async (lat, lng) => { const res = await act('adminSetShop', { shop: sh.id, lat, lng }); if (res && res.ok) loadAdmin(); },
