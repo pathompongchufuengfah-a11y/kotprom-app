@@ -324,6 +324,14 @@ const MON = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','ม�
 const MON_FULL = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
 
 let S = null;            // สถานะล่าสุดจากเซิร์ฟเวอร์
+const APP_V = '2026-11-01';   // รุ่นหน้าแอป — ขึ้นท้ายจอ ไว้เช็คว่าอัปไฟล์ใหม่ขึ้น GitHub แล้วจริง (แก้ทุกครั้งที่ปล่อยรุ่นใหม่)
+/** ป้ายท้ายจอ: รุ่นหน้าแอป + เปิดจากที่ไหน (กลุ่ม = กดเข้างานแล้วแจ้งกลุ่มเองได้) */
+function appFoot() {
+  let t = '';
+  try { t = (liff.getContext() || {}).type || ''; } catch (e) {}
+  const where = { group: 'กลุ่ม ✓', room: 'กลุ่ม ✓', utou: 'แชทส่วนตัว', external: 'นอกไลน์', none: 'นอกไลน์' }[t] || (t || 'ไม่ทราบ');
+  return `<div class="muted center" style="font-size:12px;margin-top:16px">หน้าแอป ${APP_V} · 📡 เปิดจาก: ${esc(where)}</div>`;
+}
 let skew = 0;            // เวลาเซิร์ฟเวอร์ − เวลาเครื่อง
 let tab = 'time', bossTab = 'today';
 let busy = {};           // ปุ่มที่กำลังบันทึก (ไม่ล็อกหน้าจอ แค่กันกดซ้ำปุ่มเดิม)
@@ -665,7 +673,7 @@ function wireLoc(p, onPick, setBusy) {
 }
 
 // ---------- แจ้งในกลุ่ม (liff.sendMessages — ส่งในนามพนักงาน ไม่ใช่ push ของบอท) ----------
-let pendingShare = '';
+let pendingShare = '', shareErr = '';   // shareErr = รหัสจาก LINE ครั้งล่าสุดที่ส่งไม่ผ่าน (FORBIDDEN = ยังไม่ติ๊ก chat_message.write)
 try { pendingShare = localStorage.getItem('pendingShare') || ''; } catch (e) {}
 function setPendingShare(t) { pendingShare = t || ''; try { localStorage.setItem('pendingShare', pendingShare); } catch (e) {} }
 function inGroup() {
@@ -691,11 +699,12 @@ async function shareToGroup(text, card, picked) {
       try { await liff.sendMessages([card]); sent = true; } catch (e) { console.warn('card', e); }
     }
     if (!sent) await liff.sendMessages([{ type: 'text', text: text.slice(0, 4900) }]);
-    setPendingShare('');
+    setPendingShare(''); shareErr = '';
   } catch (e) {
     setPendingShare(text);
     // บอกสาเหตุจริงจาก LINE ด้วย (เช่น ไม่ได้ติ๊ก chat_message.write) จะได้แก้ถูกจุด
     const why = String((e && (e.code || e.message)) || '').slice(0, 120);
+    shareErr = why;
     toast('📣 บันทึกเวลาแล้ว แต่ส่งแจ้งในกลุ่มไม่สำเร็จ\nกด "ส่งแจ้งอีกครั้ง" ได้เลย' + (why ? '\n(' + why + ')' : ''), 'warn', 10000);
   }
   render();
@@ -810,7 +819,7 @@ function renderRegister() {
     <button class="btn" id="rgGo" ${regPick && !sending ? '' : 'disabled'}>${sending ? 'กำลังส่ง… ⏳' : !regPick ? 'แตะชื่อของคุณก่อน' : taken ? 'ขอย้ายเครื่องมาที่นี่' : 'ใช่ ฉันคือ ' + esc(regPick)}</button>
     <div class="center"><button class="small-btn ghost" id="rgNew" style="margin-top:8px">ไม่เจอชื่อ? ลงทะเบียนใหม่</button></div>
     ${joinMode ? '<div class="gap"></div><button class="btn quiet" id="rgCancel">กลับหน้าผู้จัดการ</button>' : ''}
-    ${uidLine}`;
+    ${uidLine}${appFoot()}`;
   const rcode = document.getElementById('rgCode');
   if (rcode) rcode.oninput = () => { regCode = rcode.value; };
   const ru = document.getElementById('rgUid');
@@ -884,12 +893,13 @@ function renderTime() {
   const offStatus = d && d.status && d.status !== ST_WORK;
   const showOt = S.perPerson && S.me.ot;
   const v = otView(t);
-  const lateLine = checkedIn && (d.late || d.fine) ? `<div class="note warn">สาย ${d.late} นาที · หัก ${baht(d.fine)} บาท</div>` : '';
+  const lateLine = checkedIn && (d.late || d.fine) ? `<div class="note warn">สาย ${d.late} นาที${S.noMoney ? '' : ` · หัก ${baht(d.fine)} บาท`}</div>` : '';
   let html = '';
 
   if (pendingShare) {
     html += `<div class="card"><div class="note warn" style="margin-top:0">📣 ยังไม่ได้แจ้งในกลุ่ม<br><span style="font-size:15px">${esc(pendingShare.split('\n')[0])}</span></div>
       ${inGroup() ? '' : '<div class="muted" style="font-size:14px;margin-top:6px">ไม่ได้เปิดจากห้องแชทกลุ่ม · แตะส่งแล้วเลือกกลุ่มร้าน</div>'}
+      ${shareErr ? `<div class="muted" style="font-size:14px;margin-top:6px">LINE ตอบว่า: ${esc(shareErr)}${/FORBIDDEN|permission/i.test(shareErr) ? ' → ติ๊ก chat_message.write ในหน้า LIFF' : ''}</div>` : ''}
       <div class="gap" style="height:10px"></div><div class="row"><button class="small-btn" id="bShare" style="flex:2">📣 ${inGroup() ? 'ส่งแจ้งอีกครั้ง' : 'เลือกกลุ่มแล้วส่ง'}</button>
       <button class="small-btn ghost" id="bShareX" style="flex:1">ไม่ต้อง</button></div></div>`;
   }
@@ -902,7 +912,7 @@ function renderTime() {
   else if (!out) html += hero(clock, 'ทำงานอยู่ · เข้า ' + esc(d.in), d.late ? 'warn' : 'ok', lateLine);
   else if (d.early) html += hero(clock, 'กลับก่อน ' + esc(d.early), '', '<div class="result">ไม่มี OT คืนนี้<small>ไม่หักค่าแรง</small></div>' + lateLine);
   else html += hero(clock, (busy.checkout ? 'กำลังบันทึก… ' : 'เลิกงานแล้ว ') + esc(d.out), '',
-    '<div class="muted" style="margin-top:6px">เหนื่อยหน่อยนะวันนี้ พักผ่อนเยอะๆ</div>' + (showOt && !busy.checkout ? `<div class="result">${d.rounds ? `OT ${baht(d.rounds * ot.rate)} บาท<small>${d.rounds} รอบ</small>` : 'ไม่มี OT<small>ยังไม่ถึงรอบ</small>'}</div>` : '') + lateLine, 'sleepy');
+    '<div class="muted" style="margin-top:6px">เหนื่อยหน่อยนะวันนี้ พักผ่อนเยอะๆ</div>' + (showOt && !busy.checkout ? `<div class="result">${d.rounds ? (S.noMoney ? `OT ${d.rounds} รอบ<small>คืนนี้</small>` : `OT ${baht(d.rounds * ot.rate)} บาท<small>${d.rounds} รอบ</small>`) : 'ไม่มี OT<small>ยังไม่ถึงรอบ</small>'}</div>` : '') + lateLine, 'sleepy');
 
   if (S.branch) html += `<div class="center" style="margin:-4px 0 10px"><span class="pill blue" style="font-size:16px;padding:4px 12px">🏬 ${esc(S.branch)}</span></div>`;
   const sf = S.shift && S.shift.today;
@@ -917,14 +927,14 @@ function renderTime() {
         // ก่อนเวลาปิดมาตรฐาน = กลับก่อน (ไม่ได้ OT ทั้งคืน)
         const lbl = armed === 'early' ? 'แตะอีกครั้ง ยืนยัน' : 'กลับก่อน';
         html += `<button class="btn orange${armed === 'early' ? ' confirm' : ''}" id="bEarly">${lbl}<small>ก่อน ${ot.stdHm} · ${S.shift ? 'กะนี้' : 'คืนนี้'}ไม่ได้ OT</small></button>`;
-        html += `<span class="hint">⏳ อยู่ถึง ${hhmm(ot.std + ot.first * 60000)} ได้ OT ${baht(ot.rate)} บ.</span>`;
+        html += `<span class="hint">⏳ อยู่ถึง ${hhmm(ot.std + ot.first * 60000)} ได้ OT${S.noMoney ? ' รอบแรก' : ` ${baht(ot.rate)} บ.`}</span>`;
       } else {
         let sub = 'บันทึกเวลาออก';
-        if (showOt) sub = v.rounds === 0 ? 'ยังไม่ถึงรอบ OT' : `ได้ OT ${v.rounds} รอบ · ${baht(v.money)} บาท`;
+        if (showOt) sub = v.rounds === 0 ? 'ยังไม่ถึงรอบ OT' : `ได้ OT ${v.rounds} รอบ${S.noMoney ? '' : ` · ${baht(v.money)} บาท`}`;
         const lbl = armed === 'out' ? 'แตะอีกครั้ง ยืนยัน' : 'เลิกงาน';
         html += `<button class="btn${armed === 'out' ? ' confirm' : ''}" id="bOut">${lbl}<small>${esc(sub)}</small></button>`;
         if (showOt && !S.closed) {
-          html += `<span class="hint">⏳ รออีก ${v.waitMin} นาที ${v.rounds === 0 ? 'ได้ OT' : 'ได้เพิ่ม'} ${baht(ot.rate)} บ.</span>`;
+          html += `<span class="hint">⏳ รออีก ${v.waitMin} นาที ${v.rounds === 0 ? 'ได้ OT' : 'ได้เพิ่ม'}${S.noMoney ? ' 1 รอบ' : ` ${baht(ot.rate)} บ.`}</span>`;
         }
       }
     }
@@ -963,7 +973,7 @@ function renderTime() {
       ${S.shift.week.filter(x => x.in).length ? `<div class="muted" style="font-size:14px;margin-top:8px">${esc(S.shift.week.filter((x, i, a) => x.in && a.findIndex(y => y.name === x.name) === i).map(x => `${x.name} ${x.in}–${x.out}`).join(' · '))}</div>` : ''}</div>`;
   }
   html += swapHtml(false);
-  app.innerHTML = html;
+  app.innerHTML = html + appFoot();
 
   const on = (id, fn) => { const el = document.getElementById(id); if (el) el.onclick = fn; };
   on('bIn', checkIn);
@@ -1157,13 +1167,13 @@ function renderLeave() {
       const u = leaveType === 'พักร้อน' ? 0 : leaveType === 'ลาป่วย' ? c.sick : c.kij;
       units += u;
       const d = `${DOW[c.dow]}. ${+c.k.slice(8)}/${+c.k.slice(5, 7)}`;
-      if (isPass) return `<div class="item"><div class="main">${d}${c.ahead < 0 ? ' <span class="pill warn">ย้อนหลัง</span>' : ''}</div><div class="amt">${baht(lc.fee)} บ.</div></div>`;
+      if (isPass) return `<div class="item"><div class="main">${d}${c.ahead < 0 ? ' <span class="pill warn">ย้อนหลัง</span>' : ''}</div><div class="amt">${S.noMoney ? 'ขอเข้าสาย' : `${baht(lc.fee)} บ.`}</div></div>`;
       return `<div class="item"><div class="main">${d}${c.ahead < 0 ? ' <span class="pill warn">ย้อนหลัง</span>' : c.adv ? '' : ' <span class="pill warn">กะทันหัน</span>'}</div>
         <div class="amt">${leaveType === 'พักร้อน' ? 'ไม่ได้ค่าแรง' : u ? `หัก ${u} แรง` : 'ไม่หัก'}</div></div>`;
     }).join('');
-    const total = isPass ? `รวมค่าธรรมเนียม ${baht(lc.fee * picked.length)} บาท`
+    const total = isPass ? (S.noMoney ? `ขอเข้าสาย ${picked.length} วัน` : `รวมค่าธรรมเนียม ${baht(lc.fee * picked.length)} บาท`)
                          : leaveType === 'พักร้อน' ? `พักร้อน ${picked.length} วัน · ไม่ได้ค่าแรง ค่าอาหาร · ไม่หักแรง`
-                         : units ? `รวมหัก ${units} แรง ≈ ${baht(units * wage)} บาท` : 'ไม่หักแรง';
+                         : units ? `รวมหัก ${units} แรง${S.noMoney ? '' : ` ≈ ${baht(units * wage)} บาท`}` : 'ไม่หักแรง';
     sum = `<div class="card"><h2>เลือก ${picked.length} วัน</h2><div class="list">${lines}</div>
       <div class="total"><span>${total}</span></div>
       ${isPass ? `<div class="muted" style="margin-top:6px">เข้าได้ถึง ${esc(lc.until)} น. · ไม่โดนปรับนาที</div>` : ''}</div>`;
@@ -1178,7 +1188,7 @@ function renderLeave() {
       ${can ? `<div style="width:100%">${moreBox(mid, `<button class="small-btn red" data-cancel="${esc(l.id)}" style="width:100%;min-height:56px">${armed === 'cancel' + l.id ? 'แตะอีกครั้ง ยืนยันยกเลิกใบลา' : 'ยกเลิกใบลานี้'}</button>`)}</div>` : ''}</div>`;
   }).join('');
   const backTxt = lc.back ? ` · ฉุกเฉินลาย้อนหลังได้ ${lc.back} วัน` : '';
-  const hint = isPass ? `ค่าธรรมเนียม ${baht(lc.fee)} บาท/วัน · ลืมขอ? ขอย้อนหลังได้ ${lc.back || 0} วัน (วันที่มาทำงาน ระบบคิดสายใหม่ให้)` :
+  const hint = isPass ? `${S.noMoney ? '' : `ค่าธรรมเนียม ${baht(lc.fee)} บาท/วัน · `}ลืมขอ? ขอย้อนหลังได้ ${lc.back || 0} วัน (วันที่มาทำงาน ระบบคิดสายใหม่ให้)` :
                leaveType === 'พักร้อน' ? 'พักร้อน = ไม่ได้ค่าแรง ไม่ได้ค่าอาหาร ไม่หักแรง · แตะเลือกได้หลายวัน (ครั้งละไม่เกิน 14 วัน)' + backTxt :
                (leaveType === 'ลาป่วย' && !lc.sickDeduct ? 'ลาป่วยไม่หักแรง' : 'ตัวเลขใต้วัน = แรงที่หัก (อังคาร ศุกร์ เสาร์ หักหนักกว่า)') + backTxt;
   app.innerHTML = `
