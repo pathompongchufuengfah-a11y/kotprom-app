@@ -324,7 +324,7 @@ const MON = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','ม�
 const MON_FULL = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
 
 let S = null;            // สถานะล่าสุดจากเซิร์ฟเวอร์
-const APP_V = '2026-11-01';   // รุ่นหน้าแอป — ขึ้นท้ายจอ ไว้เช็คว่าอัปไฟล์ใหม่ขึ้น GitHub แล้วจริง (แก้ทุกครั้งที่ปล่อยรุ่นใหม่)
+const APP_V = '2026-11-01b';   // รุ่นหน้าแอป — ขึ้นท้ายจอ ไว้เช็คว่าอัปไฟล์ใหม่ขึ้น GitHub แล้วจริง (แก้ทุกครั้งที่ปล่อยรุ่นใหม่)
 /** ป้ายท้ายจอ: รุ่นหน้าแอป + เปิดจากที่ไหน (กลุ่ม = กดเข้างานแล้วแจ้งกลุ่มเองได้) */
 function appFoot() {
   let t = '';
@@ -710,6 +710,32 @@ async function shareToGroup(text, card, picked) {
   render();
 }
 
+/** 🧪 ทดสอบส่งเข้ากลุ่ม: ไม่ใช้ GPS ไม่บันทึกเวลา ไม่แตะการ์ดค้างแจ้ง · ส่งทางเดียวกับตอนกดเข้างานจริง */
+async function testShare() {
+  if (busy.test) return;
+  const text = `🧪 ทดสอบส่งเข้ากลุ่ม · ${S.me.name} · ${S.shop || ''} ${hhmm(nowMs())} น. (ไม่ได้ลงเวลา)`;
+  const why = e => String((e && (e.code || e.message)) || '').slice(0, 120);
+  busy.test = true; render();
+  try {
+    if (!inGroup()) {
+      toast('⚠️ เปิดแอปจากแชทส่วนตัว/นอกไลน์ · กดเข้างานจะไม่ส่งเข้ากลุ่มเอง\nให้เปิดจากปุ่ม "ลงเวลา" ในกลุ่มร้าน', 'warn', 10000);
+      if (liff.isApiAvailable && liff.isApiAvailable('shareTargetPicker')) {
+        try { if (await liff.shareTargetPicker([{ type: 'text', text }])) toast('✅ ส่งผ่านหน้าเลือกกลุ่มได้ · แต่ให้เปิดแอปจากในกลุ่มจะส่งเองทุกครั้ง', 'ok', 8000); }
+        catch (e) { toast('❌ เลือกกลุ่มส่งไม่สำเร็จ (' + why(e) + ')', 'bad', 10000); }
+      }
+    } else {
+      try {
+        if (!liff.isApiAvailable('sendMessages')) throw new Error('ส่งข้อความจากหน้านี้ไม่ได้');
+        await liff.sendMessages([{ type: 'text', text }]);
+        toast('✅ ส่งเข้ากลุ่มได้ · กดเข้างานจริงก็จะเข้ากลุ่มแบบนี้', 'ok', 6000);
+      } catch (e) {
+        const w = why(e);
+        toast('❌ ส่งเข้ากลุ่มไม่ได้' + (w ? ' (' + w + ')' : '') + (/FORBIDDEN|permission/i.test(w) ? '\n→ ติ๊ก chat_message.write ในหน้า LIFF' : ''), 'bad', 10000);
+      }
+    }
+  } finally { busy.test = false; render(); }
+}
+
 // ---------- วาดหน้าจอ ----------
 const TAB_ICON = {
   time: 'M3 12a9 9 0 1 0 18 0a9 9 0 1 0-18 0M12 7v5l3 2',
@@ -973,9 +999,11 @@ function renderTime() {
       ${S.shift.week.filter(x => x.in).length ? `<div class="muted" style="font-size:14px;margin-top:8px">${esc(S.shift.week.filter((x, i, a) => x.in && a.findIndex(y => y.name === x.name) === i).map(x => `${x.name} ${x.in}–${x.out}`).join(' · '))}</div>` : ''}</div>`;
   }
   html += swapHtml(false);
+  html += `<div class="center" style="margin-top:16px"><button class="small-btn ghost" id="bTest" ${busy.test ? 'disabled' : ''}>${busy.test ? 'กำลังส่ง…' : '🧪 ทดสอบส่งเข้ากลุ่ม'}</button></div>`;
   app.innerHTML = html + appFoot();
 
   const on = (id, fn) => { const el = document.getElementById(id); if (el) el.onclick = fn; };
+  on('bTest', testShare);
   on('bIn', checkIn);
   on('bShare', () => shareToGroup(pendingShare, null, true));
   on('bShareX', () => { setPendingShare(''); render(); });
