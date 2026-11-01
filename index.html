@@ -324,7 +324,7 @@ const MON = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','ม�
 const MON_FULL = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
 
 let S = null;            // สถานะล่าสุดจากเซิร์ฟเวอร์
-const APP_V = '2026-11-01c';   // รุ่นหน้าแอป — ขึ้นท้ายจอ ไว้เช็คว่าอัปไฟล์ใหม่ขึ้น GitHub แล้วจริง (แก้ทุกครั้งที่ปล่อยรุ่นใหม่)
+const APP_V = '2026-11-01d';   // รุ่นหน้าแอป — ขึ้นท้ายจอ ไว้เช็คว่าอัปไฟล์ใหม่ขึ้น GitHub แล้วจริง (แก้ทุกครั้งที่ปล่อยรุ่นใหม่)
 /** ป้ายท้ายจอ: รุ่นหน้าแอป + เปิดจากที่ไหน (กลุ่ม = กดเข้างานแล้วแจ้งกลุ่มเองได้) */
 function appFoot() {
   let t = '';
@@ -709,7 +709,7 @@ async function shareToGroup(text, card, picked) {
     return render();
   }
   try {
-    if (!liff.isApiAvailable('sendMessages')) throw new Error('ส่งข้อความจากหน้านี้ไม่ได้');
+    if (typeof liff.sendMessages !== 'function') throw new Error('ส่งข้อความจากหน้านี้ไม่ได้');
     let sent = false;
     if (card) {   // การ์ดน้องพร้อม (ร้านที่เปิดสวิตช์) · ส่งไม่ผ่าน → ส่งข้อความธรรมดาแทน
       try { await liff.sendMessages([card]); sent = true; } catch (e) { console.warn('card', e); }
@@ -741,7 +741,7 @@ async function testShare() {
       }
     } else {
       try {
-        if (!liff.isApiAvailable('sendMessages')) throw new Error('ส่งข้อความจากหน้านี้ไม่ได้');
+        if (typeof liff.sendMessages !== 'function') throw new Error('ส่งข้อความจากหน้านี้ไม่ได้');
         await liff.sendMessages([{ type: 'text', text }]);
         toast('✅ ส่งเข้ากลุ่มได้ · กดเข้างานจริงก็จะเข้ากลุ่มแบบนี้', 'ok', 6000);
       } catch (e) {
