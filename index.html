@@ -674,14 +674,14 @@ function inGroup() {
 /** บันทึกลงชีตเสร็จก่อนเสมอ แล้วค่อยส่ง · ส่งพลาด → เก็บไว้ให้กด "ส่งแจ้งอีกครั้ง" (เวลาที่บันทึกไม่หาย) */
 async function shareToGroup(text, card, picked) {
   if (!text) return;
-  if (!inGroup()) {   // เปิดจากริชเมนู/แชทบอท/เบราว์เซอร์ → ส่งเข้ากลุ่มเองไม่ได้: อย่าเงียบ เก็บไว้ให้กดเลือกกลุ่มส่ง
-    if (picked && liff.isApiAvailable && liff.isApiAvailable('shareTargetPicker')) {
+  if (!inGroup()) {   // เปิดจากริชเมนู/แชทบอท/เบราว์เซอร์ → ส่งตรงเข้ากลุ่มไม่ได้: เปิดหน้าเลือกกลุ่มให้ทันที (แตะกลุ่มร้านครั้งเดียว)
+    setPendingShare(text);                       // เลือกไม่สำเร็จ/ปิดหน้าเลือก = การ์ดค้างแจ้งยังอยู่
+    if (liff.isApiAvailable && liff.isApiAvailable('shareTargetPicker')) {
       try {
         const r = await liff.shareTargetPicker([card || { type: 'text', text: text.slice(0, 4900) }]);
         if (r) { setPendingShare(''); toast('📣 ส่งแจ้งในกลุ่มแล้ว', 'ok'); }
       } catch (e) { toast('📣 เลือกกลุ่มส่งไม่สำเร็จ (' + String((e && (e.code || e.message)) || '').slice(0, 80) + ')', 'warn', 8000); }
     } else if (picked) toast('📣 ส่งจากหน้านี้ไม่ได้ — เปิดลิงก์ร้านจากในห้องแชทกลุ่มร้าน แล้วกดใหม่', 'warn', 8000);
-    else setPendingShare(text);
     return render();
   }
   try {
@@ -928,7 +928,7 @@ function renderTime() {
         }
       }
     }
-    if (!inGroup() && !checkedIn) html += '<div class="muted center" style="margin-top:10px">💡 เปิดหน้านี้จากในกลุ่มร้าน คนอื่นจะเห็นตอนคุณลงเวลา</div>';
+    if (!inGroup() && !checkedIn) html += '<div class="note warn" style="margin-top:10px">📣 ไม่ได้เปิดจากกลุ่มร้าน · กดเข้างานแล้วต้องเลือกกลุ่มส่งเอง<br><span style="font-size:15px">ให้ส่งเข้ากลุ่มอัตโนมัติ: พิมพ์ <b>ลงเวลา</b> ในกลุ่มร้าน แล้วเปิดแอปจากปุ่มนั้น</span></div>';
   }
 
   html += swapHtml(true);           // คำขอสลับกะที่รอตอบ ขึ้นใกล้ๆ ปุ่ม (ไม่ต้องเลื่อนหา)
